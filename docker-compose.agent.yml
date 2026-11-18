@@ -1,0 +1,39 @@
+# HEARTH agent — run on every OTHER machine you want on the dashboard.
+#   1. clone this repo on the machine (works on x86_64 and ARM, e.g. Raspberry Pi)
+#   2. create .env with HEARTH_TOKEN (same value as the hub) and HEARTH_HUB
+#   3. docker compose -f docker-compose.agent.yml up -d --build
+services:
+  hearth-agent:
+    build: .
+    image: hearth:latest
+    container_name: hearth-agent
+    restart: unless-stopped
+    network_mode: host
+    pid: host
+
+    environment:
+      HEARTH_MODE: agent
+      HEARTH_HUB: "${HEARTH_HUB:?set HEARTH_HUB in .env, e.g. http://192.168.1.10:8088}"
+      HEARTH_TOKEN: "${HEARTH_TOKEN:?set HEARTH_TOKEN in .env (same value as the hub)}"
+      # HEARTH_NODE: "nas"               # display name; defaults to the hostname
+      HEARTH_PORT: "8089"                 # local healthcheck only, bound to 127.0.0.1
+      HEARTH_INTERVAL: "1"
+      HEARTH_IFACE_EXCLUDE: "lo,veth"
+      TZ: "${TZ:-UTC}"
+
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - type: bind
+        source: /
+        target: /hostfs
+        read_only: true
+        bind:
+          propagation: rslave
+
+    # Drive health (S.M.A.R.T.) — optional, same as the hub:
+    # devices:
+    #   - /dev/sda
+    # cap_add: [SYS_RAWIO, SYS_ADMIN]
+
+    security_opt:
+      - label=disable

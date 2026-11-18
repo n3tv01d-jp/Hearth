@@ -1,0 +1,49 @@
+# HEARTH hub — the dashboard. Run this on ONE machine.
+#   docker compose up -d --build        → http://<this-host>:8088
+services:
+  hearth:
+    build: .
+    image: hearth:latest
+    container_name: hearth
+    restart: unless-stopped
+
+    # Host network + PID namespaces so HEARTH sees the *host's* interfaces,
+    # TCP table, ARP neighbours, CPU and load — not the container's.
+    network_mode: host
+    pid: host
+
+    environment:
+      HEARTH_MODE: hub
+      HEARTH_PORT: "8088"                 # port on the host (host networking)
+      HEARTH_BIND: "0.0.0.0"              # 127.0.0.1 if you put a reverse proxy in front
+      HEARTH_TOKEN: "${HEARTH_TOKEN:-}"   # shared secret for agents (from .env); empty = agents disabled
+      HEARTH_RETENTION_DAYS: "30"         # how long the archive keeps history
+      HEARTH_INTERVAL: "1"
+      HEARTH_IFACE_EXCLUDE: "lo,veth"
+      TZ: "${TZ:-UTC}"
+
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - type: bind
+        source: /
+        target: /hostfs
+        read_only: true
+        bind:
+          propagation: rslave
+      - hearth-data:/data                 # SQLite archive
+
+    # ── Drive health (S.M.A.R.T.) — optional ──
+    # Pass each whole drive through and grant the two capabilities smartctl needs.
+    # List yours with:  lsblk -d -o NAME,SIZE,MODEL
+    # devices:
+    #   - /dev/nvme0n1
+    #   - /dev/sda
+    # cap_add:
+    #   - SYS_RAWIO     # SATA/SAS SMART commands
+    #   - SYS_ADMIN     # NVMe admin commands
+
+    security_opt:
+      - label=disable   # SELinux hosts (Fedora/RHEL): allow access to docker.sock
+
+volumes:
+  hearth-data:

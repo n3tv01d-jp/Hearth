@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HEARTH // 炉心監視</title>
+<meta name="theme-color" content="#05060d">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2 29 9.5v13L16 30 3 22.5v-13z' fill='%2305060d' stroke='%233ef3ff' stroke-width='2'/%3E%3Cpath d='M16 8c3 4 5 6 5 10a5 5 0 0 1-10 0c0-2 1-3 2-4 0 2 1 3 2 3 0-3-1-5 1-9z' fill='%23ff3ea5'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&family=Share+Tech+Mono&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script>try{var t=new URLSearchParams(location.search).get('theme')||localStorage.getItem('hearth.theme');if(t&&t!=='hearth')document.documentElement.dataset.theme=t}catch(e){}</script>
+</head>
+<body>
+<div class="bg-hex" aria-hidden="true"></div>
+<div class="bg-scan" aria-hidden="true"></div>
+
+<div id="boot" aria-hidden="true">
+  <div class="boot-box">
+    <div class="boot-logo">HEARTH<span>炉心監視システム</span></div>
+    <pre id="bootLog"></pre>
+    <div class="boot-bar"><i id="bootBar"></i></div>
+  </div>
+</div>
+
+<div class="alert-banner" id="alertBanner" role="alert">
+  <span class="hz"></span><b>警告 // THERMAL WARNING</b><span id="alertText"></span><span class="hz"></span>
+</div>
+
+<header class="top">
+  <div class="brand">
+    <svg class="brand-mark" viewBox="0 0 48 48" aria-hidden="true">
+      <path d="M24 3 42 13.5v21L24 45 6 34.5v-21z" class="bm-hex"/>
+      <path d="M24 11c4 6 8 9 8 15a8 8 0 0 1-16 0c0-3 1.5-5 3-6.5 0 3 1.5 4.5 3 4.5 0-4.5-1.5-7.5 2-13z" class="bm-flame"/>
+    </svg>
+    <div>
+      <div class="logo">HEARTH<em>ハース</em></div>
+      <div class="sub">炉心監視システム · HOMELAB OPERATIONS</div>
+    </div>
+  </div>
+  <div class="hostinfo">
+    <div><label>NODE</label><b id="hHost">—</b></div>
+    <div><label>OS</label><b id="hOs">—</b></div>
+    <div><label>KERNEL</label><b id="hKernel">—</b></div>
+    <div><label>UPTIME</label><b id="hUp">—</b></div>
+  </div>
+  <div class="clock">
+    <div id="clock">--:--:--</div>
+    <div id="date">----.--.--</div>
+  </div>
+  <div class="hud-ctl">
+    <div class="theme-pick">
+      <button class="tbtn" id="themeBtn" type="button" aria-haspopup="true" aria-expanded="false" title="Theme">
+        <span class="sw"><i style="background:var(--a1)"></i><i style="background:var(--a2)"></i><i style="background:var(--a3)"></i></span><span id="themeName">HEARTH</span>
+      </button>
+      <div class="theme-menu" id="themeMenu" hidden></div>
+    </div>
+    <div class="link" id="link" title="WebSocket link"><i></i><span>NO LINK</span></div>
+  </div>
+</header>
+
+<div class="ticker" aria-hidden="true"><div class="ticker-track" id="ticker"></div></div>
+
+<nav class="fleet" id="fleet" aria-label="Fleet nodes" hidden></nav>
+<div class="stale-banner" role="status"><b>SIGNAL LOST // 応答なし</b><span id="staleText"></span></div>
+
+<main class="grid">
+  <!-- 01 CORE -->
+  <section class="panel p-core">
+    <div class="ph"><span class="no">01</span><h2>CORE</h2><span class="jp">炉心</span><span class="meta" id="cpuModel"></span></div>
+    <div class="core-body">
+      <div class="reactor">
+        <svg viewBox="0 0 200 200" aria-hidden="true">
+          <defs>
+            <radialGradient id="rg" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" style="stop-color:var(--a2);stop-opacity:.35"/>
+              <stop offset="60%" style="stop-color:var(--a1);stop-opacity:.06"/>
+              <stop offset="100%" style="stop-color:var(--a1);stop-opacity:0"/>
+            </radialGradient>
+          </defs>
+          <circle cx="100" cy="100" r="58" fill="url(#rg)" id="coreGlow"/>
+          <g id="spinA"><circle cx="100" cy="100" r="96" class="r-dash"/></g>
+          <g id="spinB"><circle cx="100" cy="100" r="62" class="r-dash2"/>
+            <path d="M100 34 l4 7 h-8z M100 166 l4 -7 h-8z" class="r-tri"/></g>
+          <circle cx="100" cy="100" r="86" class="r-track"/>
+          <circle cx="100" cy="100" r="86" class="r-cpu" id="ringCpu" pathLength="100" transform="rotate(-90 100 100)"/>
+          <circle cx="100" cy="100" r="73" class="r-track thin"/>
+          <circle cx="100" cy="100" r="73" class="r-mem" id="ringMem" pathLength="100" transform="rotate(-90 100 100)"/>
+        </svg>
+        <div class="r-center">
+          <div class="r-val"><span id="cpuPct">0</span><small>%</small></div>
+          <div class="r-lbl">CPU 負荷</div>
+          <div class="r-mem-lbl">MEM <b id="memPct">0</b>%</div>
+        </div>
+      </div>
+      <dl class="kv">
+        <div><dt>LOAD</dt><dd id="kLoad">—</dd></div>
+        <div><dt>CLOCK</dt><dd id="kFreq">—</dd></div>
+        <div><dt>THREADS</dt><dd id="kThreads">—</dd></div>
+        <div><dt>CPU TEMP</dt><dd id="kTemp">—</dd></div>
+        <div><dt>MEMORY</dt><dd id="kMem">—</dd></div>
+        <div><dt>SWAP</dt><dd id="kSwap">—</dd></div>
+      </dl>
+    </div>
+    <div class="cores" id="cores"></div>
+    <div class="chart-wrap sm"><canvas id="cpuChart"></canvas><span class="legend"><i class="c"></i>CPU <i class="m"></i>MEM · 120s</span></div>
+  </section>
+
+  <!-- 02 NETWORK -->
+  <section class="panel p-net">
+    <div class="ph"><span class="no">02</span><h2>NETWORK</h2><span class="jp">通信</span><span class="meta" id="netIface">—</span></div>
+    <div class="net-read">
+      <div class="big rx"><label>▼ DOWNLINK</label><b id="nRx">0</b><small id="nRxPk">peak —</small></div>
+      <div class="big tx"><label>▲ UPLINK</label><b id="nTx">0</b><small id="nTxPk">peak —</small></div>
+      <div class="mini"><label>TOTAL RX</label><b id="nTrx">—</b></div>
+      <div class="mini"><label>TOTAL TX</label><b id="nTtx">—</b></div>
+      <div class="mini"><label>TCP ESTAB</label><b id="nEst">—</b></div>
+      <div class="mini"><label>LISTEN</label><b id="nListen">—</b></div>
+      <div class="mini"><label>UDP SOCK</label><b id="nUdp">—</b></div>
+      <div class="mini"><label>PEERS</label><b id="nPeers">—</b></div>
+    </div>
+    <div class="chart-wrap lg"><canvas id="netChart"></canvas><span class="legend"><i class="c"></i>RX <i class="m"></i>TX · 120s</span></div>
+    <div class="ifaces" id="ifaces"></div>
+  </section>
+
+  <!-- 03 THERMAL -->
+  <section class="panel p-therm">
+    <div class="ph"><span class="no">03</span><h2>THERMAL</h2><span class="jp">熱源</span><span class="meta" id="thermMeta">—</span></div>
+    <div class="therm-head">
+      <div class="hot"><label>HOTTEST CPU</label><b id="hotVal">—</b><small id="hotLbl"></small></div>
+      <div class="chart-wrap xs"><canvas id="hotChart"></canvas></div>
+    </div>
+    <div class="temps" id="temps"></div>
+    <div class="fans" id="fans"></div>
+  </section>
+
+  <!-- 04 CONTAINERS -->
+  <section class="panel p-cont">
+    <div class="ph"><span class="no">04</span><h2>CONTAINERS</h2><span class="jp">艦隊</span>
+      <span class="meta"><span id="dCount">—</span> · <span id="dVer">engine —</span></span></div>
+    <div class="cont-tools">
+      <input id="dFilter" type="search" placeholder="FILTER // 検索" autocomplete="off" spellcheck="false">
+      <button id="dStopped" class="tgl on" type="button">SHOW STOPPED</button>
+      <div class="cont-sum" id="dSum"></div>
+    </div>
+    <div class="cont-empty" id="dEmpty" hidden></div>
+    <div class="cards" id="cards"></div>
+  </section>
+
+  <!-- 05 STORAGE -->
+  <section class="panel p-stor">
+    <div class="ph"><span class="no">05</span><h2>STORAGE</h2><span class="jp">記憶域</span><span class="meta" id="ioMeta">—</span></div>
+    <div class="disks" id="disks"></div>
+    <div class="sub-h">DRIVE HEALTH // S.M.A.R.T.<span id="smartMeta"></span></div>
+    <div class="drives" id="drives"></div>
+  </section>
+
+  <!-- 06 ARCHIVE -->
+  <section class="panel p-hist">
+    <div class="ph"><span class="no">06</span><h2>ARCHIVE</h2><span class="jp">履歴</span><span class="meta" id="histMeta">—</span></div>
+    <div class="hist-tools">
+      <div class="seg-tabs" id="histRange" role="tablist">
+        <button type="button" data-r="1h" class="on">1H</button><button type="button" data-r="6h">6H</button><button type="button" data-r="24h">24H</button><button type="button" data-r="7d">7D</button><button type="button" data-r="30d">30D</button>
+      </div>
+      <div class="hist-sum" id="histSum"></div>
+    </div>
+    <div class="hist-grid">
+      <div class="hist-cell"><label>CPU / MEMORY<span id="hCpuLbl"></span></label><div class="chart-wrap md"><canvas id="hCpu"></canvas></div></div>
+      <div class="hist-cell"><label>CPU TEMPERATURE<span id="hTempLbl"></span></label><div class="chart-wrap md"><canvas id="hTemp"></canvas></div></div>
+      <div class="hist-cell"><label>NETWORK<span id="hNetLbl"></span></label><div class="chart-wrap md"><canvas id="hNet"></canvas></div></div>
+    </div>
+  </section>
+
+  <!-- 06 NAVIGATOR -->
+  <section class="panel p-nav">
+    <div class="ph"><span class="no">07</span><h2>NAVIGATOR</h2><span class="jp">案内役</span><span class="meta">KAGARI-AI v3.0<button class="tgl sm" id="sfxBtn" type="button" aria-pressed="false">SFX OFF</button></span></div>
+    <div class="nav-body">
+      <div class="nav-face" id="navFace">
+        <div class="nf-screen"><span id="navKao">(・ω・)</span></div>
+        <div class="nf-name">篝 KAGARI</div>
+      </div>
+      <div class="nav-talk">
+        <div class="nt-mood" id="navMood">STANDBY</div>
+        <p id="navLine">Booting up… one moment, commander.</p>
+        <p class="nt-jp" id="navJp">起動中…</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 07 NODES -->
+  <section class="panel p-nodes">
+    <div class="ph"><span class="no">08</span><h2>NODES</h2><span class="jp">近隣</span><span class="meta" id="lanMeta">—</span></div>
+    <div class="tabs" role="tablist">
+      <button class="tab on" data-tab="lan" type="button">LAN NEIGHBORS</button>
+      <button class="tab" data-tab="peers" type="button">ACTIVE PEERS</button>
+    </div>
+    <ul class="list" id="lanList"></ul>
+    <ul class="list" id="peerList" hidden></ul>
+  </section>
+
+  <!-- 08 LOG -->
+  <section class="panel p-log">
+    <div class="ph"><span class="no">09</span><h2>SYSTEM LOG</h2><span class="jp">記録</span><span class="meta" id="logMeta">0 entries</span></div>
+    <ol class="log" id="log"></ol>
+  </section>
+</main>
+
+<footer class="foot">HEARTH 炉心監視システム · <span id="footInfo">awaiting telemetry</span></footer>
+
+<script src="chart.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

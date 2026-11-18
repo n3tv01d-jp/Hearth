@@ -1,0 +1,6 @@
+# Pure-python / widely-wheeled deps only, so the image builds on x86_64, arm64 and armv7.
+fastapi==0.115.6
+uvicorn==0.32.1
+websockets==14.1
+psutil==6.1.1
+docker==7.1.0
