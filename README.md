@@ -12,12 +12,15 @@ A sci-fi anime-styled homelab dashboard. It streams live telemetry from every ma
 | 01 CORE 炉心 | CPU load ring, per-core bars, memory, swap, load average, clock speed, CPU temperature |
 | 02 NETWORK 通信 | Live RX/TX chart (120 s, hover for values) per interface, totals, TCP/UDP counts |
 | 03 THERMAL 熱源 | Every hwmon sensor grouped by chip, with warn/critical thresholds and fans |
-| 04 CONTAINERS 艦隊 | Each container's state, health, CPU, memory, network rate, compose project and ports |
+| 04 CONTAINERS 艦隊 | Each container's state, health, CPU, memory, network rate, compose project and ports. With control enabled: **restart / stop / start / logs** |
 | 05 STORAGE 記憶域 | Filesystem usage, a **days-until-full forecast**, and **S.M.A.R.T. drive health** |
-| 06 ARCHIVE 履歴 | Stored history over **1H / 6H / 24H / 7D / 30D** (CPU, memory, temperature, network) plus a 24-hour summary |
-| 07 NAVIGATOR 案内役 | KAGARI: alerts, recovery celebrations, daily report, optional sound effects |
+| 06 ARCHIVE 履歴 | Stored history over **1H / 6H / 24H / 7D / 30D** (CPU, memory, temperature, network) plus a 24-hour summary. **Event markers** show when things went wrong; **VS** overlays a second machine |
+| 07 NAVIGATOR 案内役 | KAGARI: alerts, recovery celebrations, daily and weekly reports, restart streaks, quiet nights, uptime records, optional sound effects |
 | 08 NODES 近隣 | LAN neighbours from ARP (machines in your fleet are tagged) and active TCP peers |
-| 09 SYSTEM LOG 記録 | Events from every machine. The log is stored, so it survives restarts. |
+| 09 SYSTEM LOG 記録 | Events from every machine. The log is stored, so it survives restarts. **Click an entry** to jump to its source. |
+| 10 BEACONS 監視点 | Ping / TCP / HTTP checks for devices that can't run an agent (router, printer, IoT, web apps), with latency sparklines and 24 h uptime. Only shown when `HEARTH_CHECKS` is set. |
+
+The **☰ menu** in the top-right corner opens the *command deck*: jump to any panel (with live status lights), collapse or expand panels, switch machines, open the 24 h / weekly / 30-day **reports**, export the archive as CSV, check push-alert status and send a test alert, pick a theme, toggle sound, the boot intro and stopped containers, and see what's enabled on the hub.
 
 ## Quick start (single machine)
 
@@ -79,7 +82,75 @@ docker run --rm -v hearth_hearth-data:/data -v "$PWD":/out alpine cp /data/heart
 
 - Nine themes are available from the swatch button in the header: **HEARTH** 炉心, **REDLINE** 赤警報, **MECHA** 機甲, **SAKURA** 桜, **ECLIPSE** 月蝕, **KURENAI** 紅, **ABYSS** 深海, **AURUM** 黄金 and **SPECTER** 幽霊. Your choice is remembered per browser.
 - Turn on **SFX** in the Navigator panel for synthesised alerts: an alarm for critical events, a blip for warnings, and a chime when something recovers.
-- KAGARI reacts to overheating, silent machines, crashed or unhealthy containers, failing drives, full or filling disks, and recoveries. She also reads you the 24-hour report.
+- KAGARI reacts to overheating, silent machines, crashed or unhealthy containers, failing drives, full or filling disks, down beacons, and recoveries. She remembers things too: a container on its 3rd restart today, a quiet (or rough) night, a new uptime record, days without a warning. She reads you the daily and weekly reports.
+
+## Push alerts
+
+KAGARI can reach you when the dashboard isn't open. Set `HEARTH_NOTIFY` on the hub to one or more URLs, separated by commas:
+
+```bash
+HEARTH_NOTIFY=https://ntfy.sh/my-secret-topic                               # ntfy
+HEARTH_NOTIFY=https://gotify.lan/message?token=AbC123                       # Gotify
+HEARTH_NOTIFY=https://discord.com/api/webhooks/123/xyz                      # Discord
+HEARTH_NOTIFY=https://hooks.slack.com/services/T000/B000/xyz                # Slack
+HEARTH_NOTIFY=webhook+https://n8n.lan/webhook/hearth                        # any JSON webhook
+```
+
+The service is worked out from the URL. To force it, add a `ntfy+`, `gotify+`, `discord+`, `slack+` or `webhook+` prefix (useful for a self-hosted ntfy on a host without "ntfy" in its name). `user:pass@` in a URL is sent as basic auth.
+
+Warnings, criticals and recoveries are sent from every machine in the fleet. Identical alerts (same machine, source and message, ignoring numbers) are held back for 5 minutes, and at most 10 go out per minute, so a flapping container can't flood your phone. The command deck shows each target's status and has a **SEND TEST ALERT** button.
+
+## Beacons
+
+Watch things that can't run an agent. Set `HEARTH_CHECKS` on the hub:
+
+```bash
+HEARTH_CHECKS="router=192.168.1.1, printer=tcp:192.168.1.50:631, homeassistant=http://192.168.1.20:8123"
+```
+
+| Form | Check |
+|---|---|
+| `name=HOST` or `name=ping:HOST` | ICMP ping |
+| `name=tcp:HOST:PORT` | TCP connect |
+| `name=http(s)://…` | HTTP GET. Any response below 500 counts as up, and self-signed certificates are accepted. |
+
+Beacons are probed every 30 s and marked **DOWN** after two failures in a row. Down and back-up events go to the log, KAGARI and push alerts. Results are archived, so the panel and reports show uptime. Beacon IPs are tagged in the NODES list.
+
+## Container control
+
+Off by default. Set `HEARTH_ALLOW_CONTROL=1` on the **hub** to get ↻ RESTART, ■ STOP, ▶ START and ≡ LOGS buttons on container cards. To control containers on an agent machine, also set `HEARTH_ALLOW_CONTROL=1` on **that agent**. Each machine decides for itself, and the hub forwards requests over the agent's existing link (no extra ports).
+
+- Stop and restart ask for confirmation. Every action is written to the system log along with the address it came from.
+- HEARTH refuses to stop or restart its own container.
+- Requests need an `X-Hearth: 1` header, which browsers won't send cross-site, so another website can't trigger them.
+- **The dashboard has no login.** With control on, anyone who can open it can stop your containers. Keep it on a trusted LAN or behind an authenticating reverse proxy.
+
+## Prometheus
+
+`/metrics` exposes everything HEARTH sees in Prometheus text format: per-node CPU, memory, load, temperatures, fans, network, disks and days-until-full, containers, S.M.A.R.T. and beacons, plus event counters. Add the hub as a scrape target:
+
+```yaml
+scrape_configs:
+  - job_name: hearth
+    static_configs: [{ targets: ["192.168.1.10:8088"] }]
+```
+
+Turn it off with `HEARTH_METRICS=0`.
+
+## Keyboard
+
+| Key | Action |
+|---|---|
+| `1` … `9`, `0` | Jump to panel 01 … 10 |
+| `[` `]` | Previous / next machine |
+| `T` / `Shift+T` | Next / previous theme |
+| `R` | Cycle the archive range |
+| `/` | Filter containers |
+| `M` | Mute / unmute SFX |
+| `W` | Weekly report |
+| `S` | Open / close the command deck |
+| `?` | Shortcut help |
+| `Esc` | Close whatever is open |
 
 ## Configuration
 
@@ -97,21 +168,33 @@ docker run --rm -v hearth_hearth-data:/data -v "$PWD":/out alpine cp /data/heart
 | `HEARTH_SMART_INTERVAL` | `600` | both | Seconds between S.M.A.R.T. scans |
 | `HEARTH_INTERVAL` | `1` | both | Seconds between samples |
 | `HEARTH_IFACE_EXCLUDE` | `lo,veth` | both | Interface name prefixes to hide |
+| `HEARTH_ALLOW_CONTROL` | `0` | both | `1` enables container start / stop / restart / logs on that machine |
+| `HEARTH_NOTIFY` | — | hub | Push alert URLs (see *Push alerts*) |
+| `HEARTH_NOTIFY_LEVEL` | `warn` | hub | Lowest level to push: `info`, `warn` or `crit` |
+| `HEARTH_NOTIFY_RECOVERY` | `1` | hub | Also push recoveries |
+| `HEARTH_NOTIFY_COOLDOWN` | `300` | hub | Seconds an identical alert is held back |
+| `HEARTH_NOTIFY_BURST` | `10` | hub | Most alerts sent per minute |
+| `HEARTH_CHECKS` | — | hub | Beacons (see *Beacons*) |
+| `HEARTH_CHECK_INTERVAL` | `30` | hub | Seconds between beacon probes |
+| `HEARTH_CHECK_TIMEOUT` | `3` | hub | Probe timeout in seconds |
+| `HEARTH_METRICS` | `1` | hub | `0` disables `/metrics` |
 
 ## How it sees the host
 
 | Compose setting | Why |
 |---|---|
 | `network_mode: host`, `pid: host` | Shows the host's interfaces, TCP table, ARP neighbours and CPU |
-| `/var/run/docker.sock:ro` | Container list, live stats and events. HEARTH only reads. |
+| `/var/run/docker.sock:ro` | Container list, live stats and events. HEARTH only makes read calls unless `HEARTH_ALLOW_CONTROL=1`. (`:ro` doesn't restrict the Docker API itself; the opt-in flag does.) |
 | `/:/hostfs:ro` | Filesystem usage and the OS name |
 | `security_opt: label=disable` | Lets the container use docker.sock on SELinux hosts (Fedora/RHEL) |
 
 ## Security notes
 
-- The **dashboard itself has no login**, so keep it on your LAN or put it behind a reverse proxy with auth. It works under a sub-path.
+- The **dashboard itself has no login**, so keep it on your LAN or put it behind a reverse proxy with auth. It works under a sub-path. This matters more if you turn on container control.
 - Never commit `.env`: it holds the agent token. The `.gitignore` already excludes it.
 
 ## Endpoints (hub)
 
-`/` dashboard · `/ws` browser stream · `/agent` agent stream · `/api/fleet` · `/api/snapshot?node=` · `/api/history?node=&range=1h|6h|24h|7d|30d` · `/api/summary?node=&hours=24` · `/healthz`
+`/` dashboard · `/ws` browser stream · `/agent` agent stream · `/api/fleet` · `/api/snapshot?node=` · `/api/history?node=&range=1h|6h|24h|7d|30d` · `/api/summary?node=&hours=24` · `/api/events?node=&range=` · `/api/report?node=&days=1-30` · `/api/insights?node=` · `/api/beacons` · `/api/info` · `/metrics` · `/healthz`
+
+POST (need the `X-Hearth: 1` header): `/api/container` `{node, id, action: start|stop|restart|logs}` · `/api/notify/test`

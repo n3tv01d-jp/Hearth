@@ -57,6 +57,9 @@
       <div class="theme-menu" id="themeMenu" hidden></div>
     </div>
     <div class="link" id="link" title="WebSocket link"><i></i><span>NO LINK</span></div>
+    <button class="menu-btn" id="menuBtn" type="button" aria-label="Open the command deck" aria-expanded="false" aria-controls="sidebar" title="Menu (S)">
+      <span></span><span></span><span></span>
+    </button>
   </div>
 </header>
 
@@ -163,6 +166,8 @@
       <div class="seg-tabs" id="histRange" role="tablist">
         <button type="button" data-r="1h" class="on">1H</button><button type="button" data-r="6h">6H</button><button type="button" data-r="24h">24H</button><button type="button" data-r="7d">7D</button><button type="button" data-r="30d">30D</button>
       </div>
+      <label class="cmp" id="cmpWrap" hidden>VS <select id="histCmp" aria-label="Compare with another machine"></select></label>
+      <div class="cmp-legend" id="cmpLegend" hidden></div>
       <div class="hist-sum" id="histSum"></div>
     </div>
     <div class="hist-grid">
@@ -172,7 +177,7 @@
     </div>
   </section>
 
-  <!-- 06 NAVIGATOR -->
+  <!-- 07 NAVIGATOR -->
   <section class="panel p-nav">
     <div class="ph"><span class="no">07</span><h2>NAVIGATOR</h2><span class="jp">案内役</span><span class="meta">KAGARI-AI v3.0<button class="tgl sm" id="sfxBtn" type="button" aria-pressed="false">SFX OFF</button></span></div>
     <div class="nav-body">
@@ -188,7 +193,7 @@
     </div>
   </section>
 
-  <!-- 07 NODES -->
+  <!-- 08 NODES -->
   <section class="panel p-nodes">
     <div class="ph"><span class="no">08</span><h2>NODES</h2><span class="jp">近隣</span><span class="meta" id="lanMeta">—</span></div>
     <div class="tabs" role="tablist">
@@ -199,12 +204,35 @@
     <ul class="list" id="peerList" hidden></ul>
   </section>
 
-  <!-- 08 LOG -->
+  <!-- 09 LOG -->
   <section class="panel p-log">
     <div class="ph"><span class="no">09</span><h2>SYSTEM LOG</h2><span class="jp">記録</span><span class="meta" id="logMeta">0 entries</span></div>
     <ol class="log" id="log"></ol>
   </section>
+
+  <!-- 10 BEACONS -->
+  <section class="panel p-bea" hidden>
+    <div class="ph"><span class="no">10</span><h2>BEACONS</h2><span class="jp">監視点</span><span class="meta" id="beaMeta">—</span></div>
+    <div class="beacons" id="beacons"></div>
+  </section>
 </main>
+
+<div class="scrim" id="scrim"></div>
+<aside class="sidebar" id="sidebar" aria-label="Command deck" aria-hidden="true" inert>
+  <header class="sb-head">
+    <div><b>COMMAND DECK</b><span>指令室</span></div>
+    <button class="sb-x" id="sbClose" type="button" aria-label="Close menu">✕</button>
+  </header>
+  <div class="sb-body" id="sbBody"></div>
+</aside>
+
+<div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" hidden>
+  <div class="modal-box">
+    <header><h3 id="modalTitle"></h3><button class="sb-x" id="modalClose" type="button" aria-label="Close">✕</button></header>
+    <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
 
 <footer class="foot">HEARTH 炉心監視システム · <span id="footInfo">awaiting telemetry</span></footer>
 

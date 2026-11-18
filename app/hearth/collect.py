@@ -35,6 +35,8 @@ HOSTFS = os.getenv("HEARTH_HOSTFS", "/hostfs").rstrip("/")
 EXCLUDE = tuple(p.strip() for p in os.getenv("HEARTH_IFACE_EXCLUDE", "lo,veth").split(",") if p.strip())
 DOCKER_HOST = os.getenv("DOCKER_HOST", "unix:///var/run/docker.sock")
 SMART_INTERVAL = float(os.getenv("HEARTH_SMART_INTERVAL", "600"))
+# Opt-in per machine: lets the hub start / stop / restart containers and read their logs here.
+ALLOW_CONTROL = os.getenv("HEARTH_ALLOW_CONTROL", "").strip().lower() in ("1", "true", "yes", "on")
 BOOT_ID = secrets.token_hex(4)
 
 
@@ -53,6 +55,18 @@ def read_text(*paths: str) -> str | None:
 
 def node_id(name: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "-", name or "").strip("-.")[:48] or "node"
+
+
+def _self_container() -> str | None:
+    """Short id of the container HEARTH itself runs in (so it never stops itself)."""
+    for path in ("/proc/self/mountinfo", "/proc/self/cgroup"):
+        m = re.search(r"(?:containers/|docker[-/])([0-9a-f]{64})", read_text(path) or "")
+        if m:
+            return m.group(1)[:12]
+    return None
+
+
+SELF_CONTAINER = _self_container()
 
 
 # ───────────────────────────── host info ─────────────────────────────
@@ -79,6 +93,7 @@ HOST = {
     "cpu": _cpu_model(),
     "threads": psutil.cpu_count() or 1,
     "cores": psutil.cpu_count(logical=False) or psutil.cpu_count() or 1,
+    "boot_time": int(psutil.boot_time()),
 }
 NODE_ID = node_id(HOST["name"])
 
@@ -680,7 +695,12 @@ class DockerWatch:
     def snapshot(self) -> dict:
         with self.lock:
             items = [dict(c, **(self.stats.get(c["id"]) or {})) for c in self.containers]
+        if SELF_CONTAINER:
+            for c in items:
+                if c["id"] == SELF_CONTAINER:
+                    c["self"] = True
         return {"online": self.online, "version": self.version, "error": self.error, "containers": items,
+                "control": ALLOW_CONTROL,
                 "running": sum(1 for c in items if c["state"] == "running"), "total": len(items)}
 
 

@@ -19,6 +19,7 @@ services:
       HEARTH_PORT: "8089"                 # local healthcheck only, bound to 127.0.0.1
       HEARTH_INTERVAL: "1"
       HEARTH_IFACE_EXCLUDE: "lo,veth"
+      HEARTH_ALLOW_CONTROL: "${HEARTH_ALLOW_CONTROL:-0}"  # 1 = let the hub control containers on THIS machine
       TZ: "${TZ:-UTC}"
 
     volumes:

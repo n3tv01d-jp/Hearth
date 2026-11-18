@@ -16,6 +16,8 @@ function niceMax(v) {
   const p = Math.pow(10, Math.floor(Math.log10(v))), n = v / p;
   return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * p;
 }
+const escT = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const markColor = l => PAL[l === 'crit' ? 'red' : l === 'warn' ? 'amber' : 'green'];
 function hexA(hex, a) {
   const h = hex.replace('#', '');
   const n = parseInt(h.length === 3 ? h.split('').map(c => c + c).join('') : h, 16);
@@ -25,8 +27,9 @@ function hexA(hex, a) {
 class Chart {
   /**
    * opts: len (fixed slot count, data right-aligned), max, min, autoMin, labels, fmt (y formatter),
-   *       xlabel(i, n) -> string for tooltip/axis, xaxis (draw 3 x labels), empty (placeholder text)
-   * series: [{ name, data, color: 'a1'|'#hex', fill, width, fmt }]
+   *       xlabel(i, n) -> string for tooltip/axis, xaxis (draw 3 x labels), empty (placeholder text),
+   *       markers: [{ i, lvl, items: [event] }] event ticks, markerFmt(event) -> tooltip text
+   * series: [{ name, data, color: 'a1'|'#hex', fill, width, fmt, dash }]
    */
   constructor(canvas, opts = {}) {
     this.c = canvas; this.ctx = canvas.getContext('2d'); this.o = opts; this.series = []; this.hover = null;
@@ -59,14 +62,19 @@ class Chart {
     this.draw(); this.showTip();
   }
   valueAt(s, slot) { const off = this.slots() - s.data.length; const i = slot - off; return i >= 0 ? s.data[i] : undefined; }
+  /* event markers within a few pixels of the hovered slot: dense ranges (30d = 360 slots) are hard to hit exactly */
+  markersNear(slot, step) { return (this.o.markers || []).filter(m => Math.abs(m.i - slot) * step <= 6); }
   showTip() {
     const { n, step } = this.geom(), slot = this.hover;
     const rows = this.series.map(s => {
       const v = this.valueAt(s, slot), f = s.fmt || this.o.fmt || (x => x.toFixed(1));
-      return `<div><i style="background:${PAL[s.color] || s.color}"></i>${s.name || ''} <b>${v == null ? '—' : f(v)}</b></div>`;
+      return `<div><i style="background:${PAL[s.color] || s.color}"></i>${escT(s.name || '')} <b>${v == null ? '—' : f(v)}</b></div>`;
     }).join('');
     const xl = this.o.xlabel ? `<div class="tt">${this.o.xlabel(slot, n)}</div>` : '';
-    this.tip.innerHTML = xl + rows;
+    const evs = this.markersNear(slot, step).flatMap(m => m.items), mf = this.o.markerFmt || (e => e.msg);
+    const ev = evs.slice(0, 4).map(e => `<div class="ev ${e.lvl}">◆ ${escT(mf(e))}</div>`).join('')
+      + (evs.length > 4 ? `<div class="ev">+${evs.length - 4} more</div>` : '');
+    this.tip.innerHTML = xl + rows + ev;
     this.tip.hidden = false;
     const x = slot * step, tw = this.tip.offsetWidth;
     this.tip.style.left = (x + 12 + tw > this.w ? x - tw - 12 : x + 12) + 'px';
@@ -93,6 +101,15 @@ class Chart {
       ctx.fillText(o.empty, w / 2, top + span / 2); ctx.textAlign = 'start';
     }
     const y = v => bot - Math.min(1, Math.max(0, (v - min) / (max - min))) * span;
+    const marks = o.markers || [];
+    if (marks.length) { // faint guide line under the data for every event bucket
+      ctx.save(); ctx.setLineDash([2, 3]);
+      for (const m of marks) {
+        const x = Math.round(m.i * step) + .5;
+        ctx.strokeStyle = hexA(markColor(m.lvl), .4); ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, bot); ctx.stroke();
+      }
+      ctx.restore();
+    }
     for (const s of this.series) {
       const col = PAL[s.color] || s.color, off = n - s.data.length;
       // one stroke path + one fill path; each run of non-null values is closed down to the baseline
@@ -117,9 +134,14 @@ class Chart {
       }
       ctx.save();
       ctx.strokeStyle = col; ctx.lineWidth = s.width || 1.6; ctx.lineJoin = 'round';
+      if (s.dash) ctx.setLineDash(s.dash === true ? [5, 4] : s.dash);
       ctx.shadowColor = col; ctx.shadowBlur = 8; ctx.stroke(path); ctx.restore();
       const lv = s.data[s.data.length - 1];
       if (lv != null && !o.xaxis) { ctx.fillStyle = col; ctx.beginPath(); ctx.arc(w - 2, y(lv), 2.5, 0, 7); ctx.fill(); }
+    }
+    for (const m of marks) { // event ticks along the top edge
+      const x = m.i * step;
+      ctx.fillStyle = markColor(m.lvl); ctx.beginPath(); ctx.moveTo(x - 4, top - 2); ctx.lineTo(x + 4, top - 2); ctx.lineTo(x, top + 5); ctx.closePath(); ctx.fill();
     }
     // hover crosshair
     if (this.hover != null) {

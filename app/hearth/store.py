@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import re
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 
 log = logging.getLogger("hearth")
@@ -30,7 +32,28 @@ CREATE TABLE IF NOT EXISTS disks (
 CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, node TEXT, lvl TEXT, src TEXT, msg TEXT, rec INTEGER DEFAULT 0);
 CREATE INDEX IF NOT EXISTS events_ts ON events (ts);
+CREATE INDEX IF NOT EXISTS events_node_ts ON events (node, ts);
+CREATE TABLE IF NOT EXISTS ct_usage (
+  node TEXT NOT NULL, day TEXT NOT NULL, name TEXT NOT NULL, cpu_s REAL, mem_max INTEGER,
+  PRIMARY KEY (node, day, name)) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS records (
+  node TEXT NOT NULL, key TEXT NOT NULL, value REAL, ts INTEGER,
+  PRIMARY KEY (node, key)) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS beacons (
+  name TEXT NOT NULL, ts INTEGER NOT NULL, up INTEGER, rtt REAL,
+  PRIMARY KEY (name, ts)) WITHOUT ROWID;
 """
+# "nginx ↻ restarted" / "nginx ✖ exited (137)": restarts and crashes, as logged by DockerWatch.
+RESTART_RE = re.compile(r"^(\S+) (?:↻ restarted|✖ exited \((?!0\)|143\))[^)]*\))")
+
+
+def _midnight(ts: float | None = None) -> int:
+    d = datetime.fromtimestamp(ts if ts is not None else time.time())
+    return int(d.replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
+
+
+def _day(ts: float) -> str:
+    return datetime.fromtimestamp(ts).strftime("%Y-%m-%d")
 
 
 class Store:
@@ -63,10 +86,23 @@ class Store:
         self.q("INSERT OR REPLACE INTO events VALUES (?,?,?,?,?,?,?)",
                (e["id"], e["t"] // 1000, e["node"], e["lvl"], e["src"], e["msg"], int(bool(e.get("rec")))))
 
+    def add_ct_usage(self, node: str, day: str, rows: list[tuple[str, float, int]]) -> None:
+        self.many("INSERT INTO ct_usage VALUES (?,?,?,?,?) ON CONFLICT (node, day, name) DO UPDATE SET "
+                  "cpu_s = cpu_s + excluded.cpu_s, mem_max = MAX(mem_max, excluded.mem_max)",
+                  [(node, day, name, cpu_s, mem) for name, cpu_s, mem in rows])
+
+    def record_max(self, node: str, key: str, value: float) -> None:
+        self.q("INSERT INTO records VALUES (?,?,?,?) ON CONFLICT (node, key) DO UPDATE SET "
+               "value = MAX(value, excluded.value), ts = excluded.ts", (node, key, value, int(time.time())))
+
+    def add_beacon(self, name: str, ts: int, up: bool, rtt: float | None) -> None:
+        self.q("INSERT OR REPLACE INTO beacons VALUES (?,?,?,?)", (name, ts, int(up), rtt))
+
     def prune(self, days: int) -> None:
         cut = int(time.time()) - days * 86400
-        for table in ("samples", "disks", "events"):
+        for table in ("samples", "disks", "events", "beacons"):
             self.q(f"DELETE FROM {table} WHERE ts < ?", (cut,))  # noqa: S608 (fixed table names)
+        self.q("DELETE FROM ct_usage WHERE day < ?", (_day(cut),))
 
     # ── reads ──
     def recent_events(self, n: int = 100) -> list[dict]:
@@ -140,3 +176,83 @@ class Store:
             "hot_peak": round(hot[0][0], 1) if hot else None, "hot_peak_t": hot[0][1] * 1000 if hot else None,
             "rx_bytes": round(rx or 0), "tx_bytes": round(tx or 0), "incidents": inc,
         }
+
+    def events_between(self, node: str, start: int, end: int, limit: int = 400) -> list[dict]:
+        """Warnings, criticals and recoveries for one node: the markers on the archive charts."""
+        rows = self.q("SELECT id, ts, lvl, src, msg, rec FROM events WHERE node = ? AND ts >= ? AND ts < ? "
+                      "AND (lvl IN ('warn', 'crit') OR rec = 1) ORDER BY id DESC LIMIT ?", (node, start, end, limit))
+        return [{"id": r[0], "t": r[1] * 1000, "lvl": "ok" if r[5] else r[2], "src": r[3], "msg": r[4]}
+                for r in reversed(rows)]
+
+    def beacon_uptime(self, name: str, since: int) -> float | None:
+        v = self.q("SELECT AVG(up) FROM beacons WHERE name = ? AND ts >= ?", (name, since))[0][0]
+        return round(v, 5) if v is not None else None
+
+    def _restarts(self, node: str, since: int) -> list[dict]:
+        rows = self.q("SELECT ts, msg FROM events WHERE node = ? AND src = 'docker' AND ts >= ? ORDER BY ts",
+                      (node, since))
+        out: dict[str, dict] = {}
+        for ts, msg in rows:
+            m = RESTART_RE.match(msg or "")
+            if m:
+                r = out.setdefault(m.group(1), {"name": m.group(1), "n": 0, "last": 0})
+                r["n"] += 1
+                r["last"] = ts * 1000
+        return sorted(out.values(), key=lambda r: (-r["n"], r["name"]))
+
+    def insights(self, node: str, boot_key: str | None) -> dict:
+        """What KAGARI remembers: restart streaks, quiet nights, uptime records and calm stretches."""
+        now = time.time()
+        today = _midnight(now)
+        out: dict = {"node": node, "restarts": [r for r in self._restarts(node, today) if r["n"] >= 2][:5]}
+        night_end = today + 7 * 3600
+        out["quiet_night"] = out["night_incidents"] = None
+        if now >= night_end:
+            covered = self.q("SELECT COUNT(*) FROM samples WHERE node = ? AND ts >= ? AND ts < ?",
+                             (node, today, night_end))[0][0]
+            if covered >= 300:  # watched at least 5 of the 7 night hours
+                inc = self.q("SELECT COUNT(*) FROM events WHERE node = ? AND ts >= ? AND ts < ? "
+                             "AND lvl IN ('warn', 'crit')", (node, today, night_end))[0][0]
+                out["night_incidents"], out["quiet_night"] = inc, inc == 0
+        prev = self.q("SELECT MAX(value), COUNT(*) FROM records WHERE node = ? AND key LIKE 'boot:%' AND key != ?",
+                      (node, boot_key or ""))[0]
+        out["uptime_best_prev"], out["boots"] = prev[0], prev[1]
+        last_inc = self.q("SELECT MAX(ts) FROM events WHERE node = ? AND lvl IN ('warn', 'crit')", (node,))[0][0]
+        first = self.q("SELECT MIN(ts) FROM samples WHERE node = ?", (node,))[0][0]
+        since = last_inc or first
+        out["calm_days"] = round((now - since) / 86400, 2) if since else None
+        return out
+
+    def report(self, node: str, days: int, beacons: list[str] | tuple = ()) -> dict:
+        now = int(time.time())
+        since = _midnight(now - (days - 1) * 86400) if days > 1 else now - 86400
+        span_h = max(1, round((now - since) / 3600))
+        out: dict = {"node": node, "days": days, "since": since * 1000, "summary": self.summary(node, span_h)}
+        out["coverage"] = round(min(1.0, out["summary"]["minutes"] / max(1, (now - since) / 60)), 3)
+        rows = self.q("SELECT date(ts, 'unixepoch', 'localtime') AS d, AVG(cpu), MAX(cpu_max), AVG(mem), MAX(hot), "
+                      "SUM(rx) * 60, SUM(tx) * 60, COUNT(*) FROM samples WHERE node = ? AND ts >= ? "
+                      "GROUP BY d ORDER BY d", (node, since))
+        inc = dict(self.q("SELECT date(ts, 'unixepoch', 'localtime') AS d, COUNT(*) FROM events "
+                          "WHERE node = ? AND ts >= ? AND lvl IN ('warn', 'crit') GROUP BY d", (node, since)))
+        out["daily"] = [{"day": r[0], "cpu_avg": round(r[1] or 0, 1), "cpu_max": r[2], "mem_avg": round(r[3] or 0, 1),
+                         "hot": round(r[4], 1) if r[4] is not None else None, "rx": round(r[5] or 0),
+                         "tx": round(r[6] or 0), "minutes": r[7], "incidents": inc.get(r[0], 0)} for r in rows]
+        hot = [d for d in out["daily"] if d["hot"] is not None]
+        out["hottest_day"] = max(hot, key=lambda d: d["hot"]) if hot else None
+        out["busiest_day"] = max(out["daily"], key=lambda d: d["cpu_avg"]) if out["daily"] else None
+        out["containers"] = [
+            {"name": r[0], "cpu_h": round(r[1] / 3600, 2), "mem_max": r[2]}
+            for r in self.q("SELECT name, SUM(cpu_s), MAX(mem_max) FROM ct_usage WHERE node = ? AND day >= ? "
+                            "GROUP BY name ORDER BY 2 DESC LIMIT 8", (node, _day(since)))]
+        series: dict[str, list] = {}
+        for mount, used, total in self.q("SELECT mount, used, total FROM disks WHERE node = ? AND ts >= ? "
+                                         "ORDER BY mount, ts", (node, since)):
+            series.setdefault(mount, []).append((used, total))
+        out["disks"] = sorted(({"mount": m, "delta": p[-1][0] - p[0][0], "used": p[-1][0], "total": p[-1][1]}
+                               for m, p in series.items() if len(p) > 1), key=lambda d: -d["delta"])[:6]
+        out["restarts"] = self._restarts(node, since)[:8]
+        lv = dict(self.q("SELECT lvl, COUNT(*) FROM events WHERE node = ? AND ts >= ? AND lvl IN ('warn', 'crit') "
+                         "GROUP BY lvl", (node, since)))
+        out["incidents"] = {"warn": lv.get("warn", 0), "crit": lv.get("crit", 0)}
+        out["beacons"] = [{"name": b, "uptime": self.beacon_uptime(b, since)} for b in beacons]
+        return out
