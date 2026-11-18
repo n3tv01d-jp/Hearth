@@ -131,6 +131,10 @@ const THEMES = [
   { id: 'mecha', name: 'MECHA', jp: '機甲' },
   { id: 'sakura', name: 'SAKURA', jp: '桜' },
   { id: 'eclipse', name: 'ECLIPSE', jp: '月蝕' },
+  { id: 'kurenai', name: 'KURENAI', jp: '紅' },
+  { id: 'abyss', name: 'ABYSS', jp: '深海' },
+  { id: 'aurum', name: 'AURUM', jp: '黄金' },
+  { id: 'specter', name: 'SPECTER', jp: '幽霊' },
 ];
 function applyTheme(id) {
   const t = THEMES.find(x => x.id === id) || THEMES[0];

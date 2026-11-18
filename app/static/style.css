@@ -53,6 +53,38 @@
   --s-rgb: 22, 16, 42; --bg: #06050e; --bg2: #0d0a1c; --panel: rgba(14, 10, 30, 0.9);
   --text: #ece6ff; --dim: #8d86b5; --faint: #4c4675;
 }
+/* 紅 KURENAI */
+:root[data-theme="kurenai"] {
+  --a1: #ff2e4d; --a1-rgb: 255, 46, 77;
+  --a2: #ff8a8a; --a2-rgb: 255, 138, 138;
+  --a3: #c21a3a; --a3-rgb: 194, 26, 58;
+  --s-rgb: 34, 6, 10; --bg: #0a0203; --bg2: #160406; --panel: rgba(26, 5, 8, 0.9);
+  --text: #ffe3e6; --dim: #b57a82; --faint: #6e3a42;
+}
+/* 深海 ABYSS */
+:root[data-theme="abyss"] {
+  --a1: #2f9bff; --a1-rgb: 47, 155, 255;
+  --a2: #3effc1; --a2-rgb: 62, 255, 193;
+  --a3: #5a6bff; --a3-rgb: 90, 107, 255;
+  --s-rgb: 6, 18, 38; --bg: #02060d; --bg2: #051022; --panel: rgba(5, 14, 30, 0.9);
+  --text: #def0ff; --dim: #7a97b8; --faint: #3c5475;
+}
+/* 黄金 AURUM */
+:root[data-theme="aurum"] {
+  --a1: #ffc94a; --a1-rgb: 255, 201, 74;
+  --a2: #fff1b8; --a2-rgb: 255, 241, 184;
+  --a3: #d98b2b; --a3-rgb: 217, 139, 43;
+  --s-rgb: 30, 22, 8; --bg: #090702; --bg2: #141006; --panel: rgba(22, 16, 6, 0.9);
+  --text: #fff5dc; --dim: #b5a27a; --faint: #6e5f3e;
+}
+/* 幽霊 SPECTER */
+:root[data-theme="specter"] {
+  --a1: #e6eef7; --a1-rgb: 230, 238, 247;
+  --a2: #9fb4c9; --a2-rgb: 159, 180, 201;
+  --a3: #6e8296; --a3-rgb: 110, 130, 150;
+  --s-rgb: 20, 23, 28; --bg: #060708; --bg2: #0d0f12; --panel: rgba(16, 18, 22, 0.9);
+  --text: #f2f5f8; --dim: #8c96a2; --faint: #4c5560;
+}
 :root {
   --line: rgba(var(--a1-rgb), 0.16);
   --line-2: rgba(var(--a1-rgb), 0.32);
@@ -126,7 +158,8 @@ body.alerting .alert-banner { display: flex; }
 
 /* ── header ── */
 .top {
-  position: relative; z-index: 2; display: grid; grid-template-columns: auto 1fr auto auto; align-items: center;
+  /* above the ticker/fleet/stale banner (z 2) so the theme dropdown isn't covered by them */
+  position: relative; z-index: 10; display: grid; grid-template-columns: auto 1fr auto auto; align-items: center;
   gap: 28px; padding: 14px 24px 12px; border-bottom: 1px solid var(--line);
   background: linear-gradient(180deg, rgba(var(--s-rgb), .95), rgba(var(--s-rgb), .6));
 }
@@ -440,7 +473,7 @@ body.alerting .alert-banner { display: flex; }
 .tbtn:hover, .tbtn[aria-expanded="true"] { color: var(--text); border-color: var(--a1); }
 .sw { display: inline-flex; width: 22px; height: 10px; flex: none; }
 .sw i { flex: 1; }
-.theme-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 50; min-width: 210px; padding: 6px;
+.theme-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 50; min-width: 210px; padding: 6px; max-height: calc(100vh - 90px); overflow-y: auto;
   background: rgba(var(--s-rgb), .98); border: 1px solid var(--a1-d); box-shadow: 0 10px 40px rgba(0, 0, 0, .6); }
 .theme-menu button { cursor: pointer; display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px;
   background: transparent; border: 0; text-align: left; font: 700 11px var(--f-disp); letter-spacing: .14em; color: var(--dim); }

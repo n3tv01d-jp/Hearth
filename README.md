@@ -77,7 +77,7 @@ docker run --rm -v hearth_hearth-data:/data -v "$PWD":/out alpine cp /data/heart
 
 ## Themes & KAGARI
 
-- Five themes are available from the swatch button in the header: **HEARTH** 炉心, **REDLINE** 赤警報, **MECHA** 機甲, **SAKURA** 桜 and **ECLIPSE** 月蝕. Your choice is remembered per browser.
+- Nine themes are available from the swatch button in the header: **HEARTH** 炉心, **REDLINE** 赤警報, **MECHA** 機甲, **SAKURA** 桜, **ECLIPSE** 月蝕, **KURENAI** 紅, **ABYSS** 深海, **AURUM** 黄金 and **SPECTER** 幽霊. Your choice is remembered per browser.
 - Turn on **SFX** in the Navigator panel for synthesised alerts: an alarm for critical events, a blip for warnings, and a chime when something recovers.
 - KAGARI reacts to overheating, silent machines, crashed or unhealthy containers, failing drives, full or filling disks, and recoveries. She also reads you the 24-hour report.
 
