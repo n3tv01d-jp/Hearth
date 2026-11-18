@@ -31,9 +31,9 @@ services:
           propagation: rslave
 
     # Drive health (S.M.A.R.T.) — optional, same as the hub:
-    # devices:
-    #   - /dev/sda
-    # cap_add: [SYS_RAWIO, SYS_ADMIN]
+    devices:
+      - /dev/nvme0     # NVMe: pass the controller (nvme0), not nvme0n1 / a partition
+    cap_add: [SYS_RAWIO, SYS_ADMIN]
 
     security_opt:
       - label=disable

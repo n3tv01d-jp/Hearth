@@ -58,12 +58,12 @@ smartctl needs the drives passed into the container. In the compose file you use
 
 ```yaml
 devices:
-  - /dev/nvme0n1
-  - /dev/sda
+  - /dev/nvme0      # NVMe: the controller, not nvme0n1 or a partition
+  - /dev/sda        # SATA/USB: the whole disk, not sda1
 cap_add: [SYS_RAWIO, SYS_ADMIN]
 ```
 
-List your drives with `lsblk -d -o NAME,SIZE,MODEL`. HEARTH reads wear level, spare blocks, media errors, reallocated and pending sectors, power-on hours and data written every 10 minutes. It flags problems in the log and through KAGARI. Without the passthrough, the panel says S.M.A.R.T. is unavailable and everything else still works.
+List your drives with `lsblk -d -o NAME,SIZE,MODEL`. For an NVMe drive shown as `nvme0n1`, pass `/dev/nvme0`: `smartctl --scan` finds NVMe drives through the controller device and skips namespaces and partitions. HEARTH reads wear level, spare blocks, media errors, reallocated and pending sectors, power-on hours and data written every 10 minutes. It flags problems in the log and through KAGARI. Without the passthrough, the panel says S.M.A.R.T. is unavailable and everything else still works.
 
 The **days-until-full** forecast needs no extra setup. The hub records disk usage every 10 minutes and fits a trend line over the last 7 days. The trend shows after about 6 hours of samples.
 
