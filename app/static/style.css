@@ -158,9 +158,10 @@ body.alerting .alert-banner { display: flex; }
 /* ── ticker ── */
 .ticker { position: relative; z-index: 2; overflow: hidden; border-bottom: 1px solid var(--line);
   background: rgba(var(--a2-rgb), .05); height: 26px; }
-.ticker-track { display: flex; width: max-content; animation: tick 60s linear infinite; }
+.ticker-track { display: flex; width: max-content; animation: tick 60s linear infinite; will-change: transform; }
 .ticker-track span { font: 12px/26px var(--f-mono); color: var(--dim); letter-spacing: .12em; padding-right: 34px; white-space: nowrap; }
-.ticker-track span b { color: var(--a1); font-weight: 400; }
+.ticker-track span b { color: var(--a1); font-weight: 400; display: inline-block; vertical-align: top;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .ticker-track span.m b { color: var(--a2); }
 @keyframes tick { to { transform: translateX(-50%); } }
 

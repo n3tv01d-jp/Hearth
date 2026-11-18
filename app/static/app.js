@@ -199,11 +199,15 @@ const charts = {
 };
 
 /* ───────── ticker ───────── */
+/* [label, key, class, slot width in ch] — fixed slot widths keep the track width constant,
+   so changing values never shift the scroll animation (it's a % of the track width). */
 const TICK_ITEMS = [
-  ['NODE', 'host'], ['CPU', 'cpu'], ['MEM', 'mem', 'm'], ['▼ RX', 'rx'], ['▲ TX', 'tx', 'm'], ['CONTAINERS', 'ct'],
-  ['FLEET', 'fleet', 'm'], ['CORE TEMP', 'temp'], ['ステータス', 'status', 'm'], ['UPTIME', 'up'],
+  ['NODE', 'host', '', 16], ['CPU', 'cpu', '', 4], ['MEM', 'mem', 'm', 4], ['▼ RX', 'rx', '', 10], ['▲ TX', 'tx', 'm', 10],
+  ['CONTAINERS', 'ct', '', 7], ['FLEET', 'fleet', 'm', 12], ['CORE TEMP', 'temp', '', 5], ['ステータス', 'status', 'm', 13],
+  ['UPTIME', 'up', '', 12],
 ];
-$('#ticker').innerHTML = (s => s + s)(TICK_ITEMS.map(([l, k, c]) => `<span class="${c || ''}">◆ ${l} <b data-tk="${k}">—</b></span>`).join(''));
+$('#ticker').innerHTML = (s => s + s)(TICK_ITEMS.map(([l, k, c, w]) =>
+  `<span class="${c}">◆ ${l} <b data-tk="${k}" style="width:${w}ch">—</b></span>`).join(''));
 function setTick(k, v) { document.querySelectorAll(`[data-tk="${k}"]`).forEach(e => setText(e, v)); }
 
 /* ───────── interactions ───────── */
