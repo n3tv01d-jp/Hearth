@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/hearth.png" alt="HEARTH banner" width="100%">
+</p>
+
 # HEARTH // 炉心監視システム
 
 A sci-fi anime-styled homelab dashboard. It streams live telemetry from every machine on your LAN to your browser, keeps an archive of history, and has a kaomoji navigator who comments on what's happening.
