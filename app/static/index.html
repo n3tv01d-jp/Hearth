@@ -3,240 +3,110 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>HEARTH // 炉心監視</title>
+<title>HEARTH // 起動選択</title>
 <meta name="theme-color" content="#05060d">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2 29 9.5v13L16 30 3 22.5v-13z' fill='%2305060d' stroke='%233ef3ff' stroke-width='2'/%3E%3Cpath d='M16 8c3 4 5 6 5 10a5 5 0 0 1-10 0c0-2 1-3 2-4 0 2 1 3 2 3 0-3-1-5 1-9z' fill='%23ff3ea5'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&family=Share+Tech+Mono&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
-<script>try{var t=new URLSearchParams(location.search).get('theme')||localStorage.getItem('hearth.theme');if(t&&t!=='hearth')document.documentElement.dataset.theme=t}catch(e){}</script>
+<script>
+// old dashboard deep links (/?node=…) keep working
+if (/[?&]node=/.test(location.search)) location.replace('hearth.html' + location.search + location.hash);
+try{var t=new URLSearchParams(location.search).get('theme')||localStorage.getItem('hearth.theme');if(t&&t!=='hearth')document.documentElement.dataset.theme=t}catch(e){}
+</script>
+<style>
+  .front { position: relative; z-index: 1; min-height: 100vh; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 36px; padding: 40px 16px; }
+  .front-head { text-align: center; }
+  .front-head h1 { margin: 0; font: 900 clamp(26px, 5vw, 44px) var(--f-disp); letter-spacing: .28em; color: var(--text);
+    text-shadow: 0 0 18px rgba(var(--a1-rgb), .45); }
+  .front-head p { margin: 6px 0 0; font: 13px var(--f-mono); letter-spacing: .3em; color: var(--dim); }
+  .front-head p b { color: var(--a2); font-weight: 400; }
+
+  .slots { display: grid; grid-template-columns: repeat(3, minmax(0, 260px)); gap: clamp(14px, 3vw, 32px); width: 100%; justify-content: center; }
+  .slot { --c: var(--a1); --c-rgb: var(--a1-rgb);
+    position: relative; display: flex; flex-direction: column; aspect-ratio: 9 / 16; text-decoration: none; color: var(--text);
+    background: var(--panel); clip-path: var(--chamfer); isolation: isolate;
+    transition: transform .25s ease, filter .25s ease; }
+  /* chamfered border: an outer gradient layer behind a 1px-inset fill */
+  .slot::before { content: ""; position: absolute; inset: 0; z-index: -2; clip-path: var(--chamfer);
+    background: linear-gradient(160deg, rgba(var(--c-rgb), .9), rgba(var(--c-rgb), .15) 45%, rgba(var(--a2-rgb), .6)); }
+  .slot::after { content: ""; position: absolute; inset: 1px; z-index: -1; clip-path: var(--chamfer); background: var(--bg2); }
+
+  .slot-no { position: absolute; top: 12px; left: 14px; z-index: 2; font: 700 11px var(--f-disp); letter-spacing: .2em; color: var(--c); }
+  .slot-art { position: relative; flex: 1; margin: 1px 1px 0; overflow: hidden; display: grid; place-items: center; }
+  .slot-art img { width: 100%; height: 100%; object-fit: cover; transition: transform .6s ease; }
+  .slot-art::after { content: ""; position: absolute; inset: 0;
+    background: linear-gradient(180deg, transparent 55%, var(--bg2)), repeating-linear-gradient(0deg, rgba(255,255,255,.03) 0 1px, transparent 1px 3px); }
+  .slot-info { padding: 14px 16px 20px; }
+  .slot-info h2 { margin: 0; font: 900 clamp(15px, 2.2vw, 22px) var(--f-disp); letter-spacing: .2em; }
+  .slot-info .jp { display: block; margin-top: 2px; font: 12px var(--f-jp); color: var(--dim); letter-spacing: .2em; }
+  .slot-info .go { display: inline-block; margin-top: 12px; padding: 5px 12px; border: 1px solid rgba(var(--c-rgb), .6);
+    font: 700 10px var(--f-disp); letter-spacing: .2em; color: var(--c); }
+
+  a.slot:hover, a.slot:focus-visible { transform: translateY(-6px); filter: drop-shadow(0 0 18px rgba(var(--c-rgb), .45)); outline: none; }
+  a.slot:hover .slot-art img, a.slot:focus-visible .slot-art img { transform: scale(1.05); }
+  a.slot:hover .go, a.slot:focus-visible .go { background: rgba(var(--c-rgb), .15); }
+
+  /* locked slots */
+  .slot.wip { --c: var(--faint); --c-rgb: 125, 147, 181; cursor: not-allowed; }
+  .slot.wip .slot-art { background: repeating-linear-gradient(135deg, rgba(var(--c-rgb), .06) 0 14px, transparent 14px 28px); }
+  .slot.wip .slot-art svg { width: 38%; color: var(--dim); opacity: .35; }
+  .slot.wip h2 { color: var(--dim); }
+  .slot.wip .go { border-style: dashed; color: var(--amber); border-color: rgba(255, 182, 62, .5); }
+
+  .front-foot { font: 11px var(--f-mono); color: var(--faint); letter-spacing: .14em; }
+
+  @media (max-width: 680px) {
+    .slots { grid-template-columns: minmax(0, 300px); }
+    .slot.wip { aspect-ratio: auto; flex-direction: row; min-height: 96px; }
+    .slot.wip .slot-art { flex: 0 0 96px; }
+    .slot.wip .slot-info { align-self: center; }
+  }
+  @media (prefers-reduced-motion: reduce) { .slot, .slot-art img { transition: none; } }
+</style>
 </head>
 <body>
 <div class="bg-hex" aria-hidden="true"></div>
 <div class="bg-scan" aria-hidden="true"></div>
 
-<div id="boot" aria-hidden="true">
-  <div class="boot-box">
-    <div class="boot-logo">HEARTH<span>炉心監視システム</span></div>
-    <pre id="bootLog"></pre>
-    <div class="boot-bar"><i id="bootBar"></i></div>
-  </div>
-</div>
-
-<div class="alert-banner" id="alertBanner" role="alert">
-  <span class="hz"></span><b>警告 // THERMAL WARNING</b><span id="alertText"></span><span class="hz"></span>
-</div>
-
-<header class="top">
-  <div class="brand">
-    <svg class="brand-mark" viewBox="0 0 48 48" aria-hidden="true">
-      <path d="M24 3 42 13.5v21L24 45 6 34.5v-21z" class="bm-hex"/>
-      <path d="M24 11c4 6 8 9 8 15a8 8 0 0 1-16 0c0-3 1.5-5 3-6.5 0 3 1.5 4.5 3 4.5 0-4.5-1.5-7.5 2-13z" class="bm-flame"/>
-    </svg>
-    <div>
-      <div class="logo">HEARTH<em>ハース</em></div>
-      <div class="sub">炉心監視システム · HOMELAB OPERATIONS</div>
-    </div>
-  </div>
-  <div class="hostinfo">
-    <div><label>NODE</label><b id="hHost">—</b></div>
-    <div><label>OS</label><b id="hOs">—</b></div>
-    <div><label>KERNEL</label><b id="hKernel">—</b></div>
-    <div><label>UPTIME</label><b id="hUp">—</b></div>
-  </div>
-  <div class="clock">
-    <div id="clock">--:--:--</div>
-    <div id="date">----.--.--</div>
-  </div>
-  <div class="hud-ctl">
-    <div class="theme-pick">
-      <button class="tbtn" id="themeBtn" type="button" aria-haspopup="true" aria-expanded="false" title="Theme">
-        <span class="sw"><i style="background:var(--a1)"></i><i style="background:var(--a2)"></i><i style="background:var(--a3)"></i></span><span id="themeName">HEARTH</span>
-      </button>
-      <div class="theme-menu" id="themeMenu" hidden></div>
-    </div>
-    <div class="link" id="link" title="WebSocket link"><i></i><span>NO LINK</span></div>
-    <button class="menu-btn" id="menuBtn" type="button" aria-label="Open the command deck" aria-expanded="false" aria-controls="sidebar" title="Menu (S)">
-      <span></span><span></span><span></span>
-    </button>
-  </div>
-</header>
-
-<div class="ticker" aria-hidden="true"><div class="ticker-track" id="ticker"></div></div>
-
-<nav class="fleet" id="fleet" aria-label="Fleet nodes" hidden></nav>
-<div class="stale-banner" role="status"><b>SIGNAL LOST // 応答なし</b><span id="staleText"></span></div>
-
-<main class="grid">
-  <!-- 01 CORE -->
-  <section class="panel p-core">
-    <div class="ph"><span class="no">01</span><h2>CORE</h2><span class="jp">炉心</span><span class="meta" id="cpuModel"></span></div>
-    <div class="core-body">
-      <div class="reactor">
-        <svg viewBox="0 0 200 200" aria-hidden="true">
-          <defs>
-            <radialGradient id="rg" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" style="stop-color:var(--a2);stop-opacity:.35"/>
-              <stop offset="60%" style="stop-color:var(--a1);stop-opacity:.06"/>
-              <stop offset="100%" style="stop-color:var(--a1);stop-opacity:0"/>
-            </radialGradient>
-          </defs>
-          <circle cx="100" cy="100" r="58" fill="url(#rg)" id="coreGlow"/>
-          <g id="spinA"><circle cx="100" cy="100" r="96" class="r-dash"/></g>
-          <g id="spinB"><circle cx="100" cy="100" r="62" class="r-dash2"/>
-            <path d="M100 34 l4 7 h-8z M100 166 l4 -7 h-8z" class="r-tri"/></g>
-          <circle cx="100" cy="100" r="86" class="r-track"/>
-          <circle cx="100" cy="100" r="86" class="r-cpu" id="ringCpu" pathLength="100" transform="rotate(-90 100 100)"/>
-          <circle cx="100" cy="100" r="73" class="r-track thin"/>
-          <circle cx="100" cy="100" r="73" class="r-mem" id="ringMem" pathLength="100" transform="rotate(-90 100 100)"/>
-        </svg>
-        <div class="r-center">
-          <div class="r-val"><span id="cpuPct">0</span><small>%</small></div>
-          <div class="r-lbl">CPU 負荷</div>
-          <div class="r-mem-lbl">MEM <b id="memPct">0</b>%</div>
-        </div>
-      </div>
-      <dl class="kv">
-        <div><dt>LOAD</dt><dd id="kLoad">—</dd></div>
-        <div><dt>CLOCK</dt><dd id="kFreq">—</dd></div>
-        <div><dt>THREADS</dt><dd id="kThreads">—</dd></div>
-        <div><dt>CPU TEMP</dt><dd id="kTemp">—</dd></div>
-        <div><dt>MEMORY</dt><dd id="kMem">—</dd></div>
-        <div><dt>SWAP</dt><dd id="kSwap">—</dd></div>
-      </dl>
-    </div>
-    <div class="cores" id="cores"></div>
-    <div class="chart-wrap sm"><canvas id="cpuChart"></canvas><span class="legend"><i class="c"></i>CPU <i class="m"></i>MEM · 120s</span></div>
-  </section>
-
-  <!-- 02 NETWORK -->
-  <section class="panel p-net">
-    <div class="ph"><span class="no">02</span><h2>NETWORK</h2><span class="jp">通信</span><span class="meta" id="netIface">—</span></div>
-    <div class="net-read">
-      <div class="big rx"><label>▼ DOWNLINK</label><b id="nRx">0</b><small id="nRxPk">peak —</small></div>
-      <div class="big tx"><label>▲ UPLINK</label><b id="nTx">0</b><small id="nTxPk">peak —</small></div>
-      <div class="mini"><label>TOTAL RX</label><b id="nTrx">—</b></div>
-      <div class="mini"><label>TOTAL TX</label><b id="nTtx">—</b></div>
-      <div class="mini"><label>TCP ESTAB</label><b id="nEst">—</b></div>
-      <div class="mini"><label>LISTEN</label><b id="nListen">—</b></div>
-      <div class="mini"><label>UDP SOCK</label><b id="nUdp">—</b></div>
-      <div class="mini"><label>PEERS</label><b id="nPeers">—</b></div>
-    </div>
-    <div class="chart-wrap lg"><canvas id="netChart"></canvas><span class="legend"><i class="c"></i>RX <i class="m"></i>TX · 120s</span></div>
-    <div class="ifaces" id="ifaces"></div>
-  </section>
-
-  <!-- 03 THERMAL -->
-  <section class="panel p-therm">
-    <div class="ph"><span class="no">03</span><h2>THERMAL</h2><span class="jp">熱源</span><span class="meta" id="thermMeta">—</span></div>
-    <div class="therm-head">
-      <div class="hot"><label>HOTTEST CPU</label><b id="hotVal">—</b><small id="hotLbl"></small></div>
-      <div class="chart-wrap xs"><canvas id="hotChart"></canvas></div>
-    </div>
-    <div class="temps" id="temps"></div>
-    <div class="fans" id="fans"></div>
-  </section>
-
-  <!-- 04 CONTAINERS -->
-  <section class="panel p-cont">
-    <div class="ph"><span class="no">04</span><h2>CONTAINERS</h2><span class="jp">艦隊</span>
-      <span class="meta"><span id="dCount">—</span> · <span id="dVer">engine —</span></span></div>
-    <div class="cont-tools">
-      <input id="dFilter" type="search" placeholder="FILTER // 検索" autocomplete="off" spellcheck="false">
-      <button id="dStopped" class="tgl on" type="button">SHOW STOPPED</button>
-      <div class="cont-sum" id="dSum"></div>
-    </div>
-    <div class="cont-empty" id="dEmpty" hidden></div>
-    <div class="cards" id="cards"></div>
-  </section>
-
-  <!-- 05 STORAGE -->
-  <section class="panel p-stor">
-    <div class="ph"><span class="no">05</span><h2>STORAGE</h2><span class="jp">記憶域</span><span class="meta" id="ioMeta">—</span></div>
-    <div class="disks" id="disks"></div>
-    <div class="sub-h">DRIVE HEALTH // S.M.A.R.T.<span id="smartMeta"></span></div>
-    <div class="drives" id="drives"></div>
-  </section>
-
-  <!-- 06 ARCHIVE -->
-  <section class="panel p-hist">
-    <div class="ph"><span class="no">06</span><h2>ARCHIVE</h2><span class="jp">履歴</span><span class="meta" id="histMeta">—</span></div>
-    <div class="hist-tools">
-      <div class="seg-tabs" id="histRange" role="tablist">
-        <button type="button" data-r="1h" class="on">1H</button><button type="button" data-r="6h">6H</button><button type="button" data-r="24h">24H</button><button type="button" data-r="7d">7D</button><button type="button" data-r="30d">30D</button>
-      </div>
-      <label class="cmp" id="cmpWrap" hidden>VS <select id="histCmp" aria-label="Compare with another machine"></select></label>
-      <div class="cmp-legend" id="cmpLegend" hidden></div>
-      <div class="hist-sum" id="histSum"></div>
-    </div>
-    <div class="hist-grid">
-      <div class="hist-cell"><label>CPU / MEMORY<span id="hCpuLbl"></span></label><div class="chart-wrap md"><canvas id="hCpu"></canvas></div></div>
-      <div class="hist-cell"><label>CPU TEMPERATURE<span id="hTempLbl"></span></label><div class="chart-wrap md"><canvas id="hTemp"></canvas></div></div>
-      <div class="hist-cell"><label>NETWORK<span id="hNetLbl"></span></label><div class="chart-wrap md"><canvas id="hNet"></canvas></div></div>
-    </div>
-  </section>
-
-  <!-- 07 NAVIGATOR -->
-  <section class="panel p-nav">
-    <div class="ph"><span class="no">07</span><h2>NAVIGATOR</h2><span class="jp">案内役</span><span class="meta">KAGARI-AI v3.0<button class="tgl sm" id="sfxBtn" type="button" aria-pressed="false">SFX OFF</button></span></div>
-    <div class="nav-body">
-      <div class="nav-face" id="navFace">
-        <div class="nf-screen"><span id="navKao">(・ω・)</span></div>
-        <div class="nf-name">篝 KAGARI</div>
-      </div>
-      <div class="nav-talk">
-        <div class="nt-mood" id="navMood">STANDBY</div>
-        <p id="navLine">Booting up… one moment, commander.</p>
-        <p class="nt-jp" id="navJp">起動中…</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- 08 NODES -->
-  <section class="panel p-nodes">
-    <div class="ph"><span class="no">08</span><h2>NODES</h2><span class="jp">近隣</span><span class="meta" id="lanMeta">—</span></div>
-    <div class="tabs" role="tablist">
-      <button class="tab on" data-tab="lan" type="button">LAN NEIGHBORS</button>
-      <button class="tab" data-tab="peers" type="button">ACTIVE PEERS</button>
-    </div>
-    <ul class="list" id="lanList"></ul>
-    <ul class="list" id="peerList" hidden></ul>
-  </section>
-
-  <!-- 09 LOG -->
-  <section class="panel p-log">
-    <div class="ph"><span class="no">09</span><h2>SYSTEM LOG</h2><span class="jp">記録</span><span class="meta" id="logMeta">0 entries</span></div>
-    <ol class="log" id="log"></ol>
-  </section>
-
-  <!-- 10 BEACONS -->
-  <section class="panel p-bea" hidden>
-    <div class="ph"><span class="no">10</span><h2>BEACONS</h2><span class="jp">監視点</span><span class="meta" id="beaMeta">—</span></div>
-    <div class="beacons" id="beacons"></div>
-  </section>
-</main>
-
-<div class="scrim" id="scrim"></div>
-<aside class="sidebar" id="sidebar" aria-label="Command deck" aria-hidden="true" inert>
-  <header class="sb-head">
-    <div><b>COMMAND DECK</b><span>指令室</span></div>
-    <button class="sb-x" id="sbClose" type="button" aria-label="Close menu">✕</button>
+<main class="front">
+  <header class="front-head">
+    <h1>SELECT SYSTEM</h1>
+    <p>起動選択 · <b>3</b> SLOTS</p>
   </header>
-  <div class="sb-body" id="sbBody"></div>
-</aside>
 
-<div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" hidden>
-  <div class="modal-box">
-    <header><h3 id="modalTitle"></h3><button class="sb-x" id="modalClose" type="button" aria-label="Close">✕</button></header>
-    <div class="modal-body" id="modalBody"></div>
-  </div>
-</div>
-<div class="toasts" id="toasts" aria-live="polite"></div>
+  <nav class="slots" aria-label="Systems">
+    <a class="slot" href="hearth.html">
+      <span class="slot-no">01</span>
+      <div class="slot-art"><img src="img/hearth.webp" alt="" width="560" height="640"></div>
+      <div class="slot-info">
+        <h2>HEARTH</h2><span class="jp">炉心監視システム</span>
+        <span class="go">LAUNCH ▸</span>
+      </div>
+    </a>
 
-<footer class="foot">HEARTH 炉心監視システム · <span id="footInfo">awaiting telemetry</span></footer>
+    <div class="slot wip" aria-disabled="true">
+      <span class="slot-no">02</span>
+      <div class="slot-art" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2"><path d="M24 3 42 13.5v21L24 45 6 34.5v-21z"/><rect x="16" y="22" width="16" height="12"/><path d="M19 22v-4a5 5 0 0 1 10 0v4"/></svg></div>
+      <div class="slot-info">
+        <h2>—</h2><span class="jp">準備中</span>
+        <span class="go">WORK IN PROGRESS</span>
+      </div>
+    </div>
 
-<script src="chart.js"></script>
-<script src="app.js"></script>
+    <div class="slot wip" aria-disabled="true">
+      <span class="slot-no">03</span>
+      <div class="slot-art" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2"><path d="M24 3 42 13.5v21L24 45 6 34.5v-21z"/><rect x="16" y="22" width="16" height="12"/><path d="M19 22v-4a5 5 0 0 1 10 0v4"/></svg></div>
+      <div class="slot-info">
+        <h2>—</h2><span class="jp">準備中</span>
+        <span class="go">WORK IN PROGRESS</span>
+      </div>
+    </div>
+  </nav>
+
+  <footer class="front-foot">HEARTH 炉心監視システム</footer>
+</main>
 </body>
 </html>
