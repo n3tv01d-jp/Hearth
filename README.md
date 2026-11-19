@@ -6,6 +6,14 @@
 
 A sci-fi anime-styled homelab dashboard. It streams live telemetry from every machine on your LAN to your browser, keeps an archive of history, and has a kaomoji navigator who comments on what's happening.
 
+The start page is a **system select** with three slots, all served by the same hub and fed by the same agents:
+
+| Slot | System | What it's for |
+|---|---|---|
+| 01 | **HEARTH** 炉心 | Watch: live telemetry, archive, alerts, KAGARI (`hearth.html`) |
+| 02 | **GATE** 転送門 | Go: a start page for every web UI in the fleet, built automatically (`gate.html`) |
+| 03 | **ARSENAL** 工廠 | Fix: image updates, reboots, disk clean-up, backups, maintenance windows, change journal (`arsenal.html`) |
+
 | Panel | What it shows |
 |---|---|
 | Fleet strip | One card per machine showing whether it's online, plus CPU, memory, hottest temperature and container count. Click a card to switch the whole dashboard to that machine. |
@@ -125,6 +133,51 @@ Off by default. Set `HEARTH_ALLOW_CONTROL=1` on the **hub** to get ↻ RESTART, 
 - Requests need an `X-Hearth: 1` header, which browsers won't send cross-site, so another website can't trigger them.
 - **The dashboard has no login.** With control on, anyone who can open it can stop your containers. Keep it on a trusted LAN or behind an authenticating reverse proxy.
 
+## GATE 転送門 — service portal
+
+GATE builds a launcher for every web UI in the fleet, with no setup:
+
+- **Containers with published ports** on any machine become tiles that link to `http://<machine>:<port>`. GATE guesses which port is the web UI (443 / 80 / common app ports first; it ignores 22, 53, 5432 and other non-web ports) and shows the remaining ports as small chips.
+- **Domains from your reverse proxy**: Traefik `Host(`…`)` router rules and caddy-docker-proxy `caddy` labels become `https://` links.
+- **HTTP beacons** from `HEARTH_CHECKS`, and **bookmarks** from `HEARTH_GATE_LINKS` or added on the page with **＋ LINK**.
+
+Each tile shows a live status light (running, unhealthy, stopped, machine offline), the site's own **favicon** (fetched by the hub, so the page loads nothing cross-origin), the machine it runs on, and a **certificate badge** for HTTPS services that expire within 14 days. A stopped container keeps its tile because GATE remembers its last ports. Certificate warnings go to the log, KAGARI and push alerts.
+
+**Search:** press `/` or just start typing. Matching is fuzzy (`jlf` finds jellyfin) and ranks services you open often higher. `Enter` opens the selection in a new tab and `Shift+Enter` opens it in the current one. Arrow keys move between tiles, `E` edits, `P` pins to **Favourites**, `N` adds a bookmark, and `?` lists every key.
+
+**Customise** a tile from its `⋯` button (name, URL, group, icon, pin, hide; these are stored on the hub, so everyone sees them) or with container labels:
+
+```yaml
+labels:
+  hearth.gate.name: Jellyfin
+  hearth.gate.group: Media
+  hearth.gate.port: "8096"        # needed for containers on host networking (they publish no ports)
+  hearth.gate.scheme: https
+  hearth.gate.path: /web
+  hearth.gate.url: https://jelly.example.com   # or set the whole link
+  hearth.gate.icon: 🎬            # emoji, or an image URL
+  hearth.gate.hide: "true"
+```
+
+Links point at the agent's LAN IP, or at the address you opened the hub with for the hub's own containers. Use `HEARTH_GATE_HOSTS=nas=nas.lan` to link by name instead.
+
+**MACHINES · wake-on-LAN:** the MAC of each agent's primary interface is learned while it's online. When the machine goes offline, **⏻ WAKE** sends a magic packet from the hub. You can add machines without an agent too: `HEARTH_WOL=desktop=aa:bb:cc:dd:ee:ff` (append `@192.168.1.255` for a specific broadcast address). If a beacon has the same name, it supplies the machine's online status.
+
+## ARSENAL 工廠 — maintenance bay
+
+ARSENAL runs on every machine (in the hub and in each agent) and reports in the same snapshot, so it needs no extra ports.
+
+| Panel | What it does |
+|---|---|
+| 01 UPDATES 更新 | Compares each container's image with its registry every 6 h (`HEARTH_UPDATE_INTERVAL`), using anonymous token auth (Docker Hub, GHCR, lscr.io, Quay and other v2 registries). Lists **update available** and **new image pulled, needs recreate**. **⬆ UPDATE** pulls the image and recreates the container with exactly the same settings (env, labels, volumes including anonymous ones, ports, networks and aliases). If any step fails, the old container is put back. Local builds, pinned digests and HEARTH itself are skipped. |
+| 02 MACHINES 整備 | **Reboot required** (Debian/Ubuntu's flag file, or a newer kernel installed than the one running, on any distro), pending OS updates where the OS exposes a count (Ubuntu), when packages last changed, and Docker disk usage. **CLEAN UP** prunes dangling images, all unused images, stopped containers or the build cache. Volumes are never pruned. |
+| 03 BACKUPS 保管庫 | Files: `HEARTH_BACKUPS=photos=/mnt/backup/restic@26h, dumps=/srv/dumps/*.sql.gz@2d`, set on the machine that holds them. restic and borg repositories are recognised; anything else uses the newest file's age. Jobs that run elsewhere use **heartbeats**: `HEARTH_HEARTBEATS=offsite=26h` on the hub, then `curl -fsS http://hub:8088/api/ping/offsite` at the end of the job (`…/fail` on errors; LAN addresses only). Late or failed backups alert through the log, KAGARI and push. |
+| 04 MAINTENANCE 保守 | Opens a window for one machine or the whole fleet (30 min to 8 h). While it's open, **push alerts are muted**, HEARTH shows a banner and KAGARI stops sounding alarms. Everything is still logged. |
+| 05 STACKS 編成 | Starts, stops or restarts every container of a compose project (HEARTH's own container is skipped). |
+| 06 JOURNAL 航海日誌 | A change log ("swapped the NAS PSU", "Postgres 15 → 16"). Notes are kept forever and show as **violet markers on HEARTH's archive charts**, so you can match a change to the graphs. A maintenance window's reason is logged here automatically. |
+
+Checks, maintenance windows, heartbeats and the journal always work. **Update, clean-up and stack actions need `HEARTH_ALLOW_CONTROL=1`** on the hub and on each machine you want to act on, the same opt-in as container control. Every action is written to the system log along with the address it came from.
+
 ## Prometheus
 
 `/metrics` exposes everything HEARTH sees in Prometheus text format: per-node CPU, memory, load, temperatures, fans, network, disks and days-until-full, containers, S.M.A.R.T. and beacons, plus event counters. Add the hub as a scrape target:
@@ -134,6 +187,8 @@ scrape_configs:
   - job_name: hearth
     static_configs: [{ targets: ["192.168.1.10:8088"] }]
 ```
+
+GATE and ARSENAL add `hearth_container_update_available`, `hearth_image_updates_available`, `hearth_reboot_required`, `hearth_os_updates_pending`, `hearth_backup_ok`, `hearth_backup_last_success_timestamp_seconds`, `hearth_heartbeat_ok`, `hearth_maintenance_active` and `hearth_cert_expiry_timestamp_seconds`.
 
 Turn it off with `HEARTH_METRICS=0`.
 
@@ -178,6 +233,13 @@ Turn it off with `HEARTH_METRICS=0`.
 | `HEARTH_CHECK_INTERVAL` | `30` | hub | Seconds between beacon probes |
 | `HEARTH_CHECK_TIMEOUT` | `3` | hub | Probe timeout in seconds |
 | `HEARTH_METRICS` | `1` | hub | `0` disables `/metrics` |
+| `HEARTH_GATE_LINKS` | — | hub | GATE bookmarks: `name=url, …` |
+| `HEARTH_GATE_HOSTS` | — | hub | Host names for GATE links: `node=host, …` |
+| `HEARTH_WOL` | — | hub | Wake-on-LAN targets without an agent: `name=mac[@broadcast], …` |
+| `HEARTH_CERT_WARN_DAYS` | `14` | hub | Warn when a GATE service's certificate expires within this many days |
+| `HEARTH_UPDATE_INTERVAL` | `21600` | both | Seconds between image update checks (minimum 600) |
+| `HEARTH_BACKUPS` | — | both | Backups on that machine: `name=/path[@max-age], …` |
+| `HEARTH_HEARTBEATS` | — | hub | Heartbeat checks: `name=max-age, …` |
 
 ## How it sees the host
 
@@ -190,11 +252,13 @@ Turn it off with `HEARTH_METRICS=0`.
 
 ## Security notes
 
-- The **dashboard itself has no login**, so keep it on your LAN or put it behind a reverse proxy with auth. It works under a sub-path. This matters more if you turn on container control.
+- The **dashboard itself has no login**, so keep it on your LAN or put it behind a reverse proxy with auth. It works under a sub-path. This matters more if you turn on container control, because then anyone who can open HEARTH or ARSENAL can stop, update or prune containers.
+- GATE's edits, maintenance windows and journal notes don't need control, but they are visible to and editable by everyone who can open the pages.
+- ARSENAL makes outbound HTTPS requests to the registries of the images you run (one manifest lookup per image per check). GATE's hub fetches favicons and TLS certificates from the services it links to.
 - Never commit `.env`: it holds the agent token. The `.gitignore` already excludes it.
 
 ## Endpoints (hub)
 
-`/` dashboard · `/ws` browser stream · `/agent` agent stream · `/api/fleet` · `/api/snapshot?node=` · `/api/history?node=&range=1h|6h|24h|7d|30d` · `/api/summary?node=&hours=24` · `/api/events?node=&range=` · `/api/report?node=&days=1-30` · `/api/insights?node=` · `/api/beacons` · `/api/info` · `/metrics` · `/healthz`
+`/` system select · `/hearth.html` · `/gate.html` · `/arsenal.html` · `/ws` browser stream · `/agent` agent stream · `/api/fleet` · `/api/snapshot?node=` · `/api/history?node=&range=1h|6h|24h|7d|30d` · `/api/summary?node=&hours=24` · `/api/events?node=&range=` · `/api/report?node=&days=1-30` · `/api/insights?node=` · `/api/beacons` · `/api/info` · `/api/gate` · `/api/gate/icon?id=` · `/api/arsenal` · `/api/journal?node=` · `/api/ping/<name>[/fail]` · `/metrics` · `/healthz`
 
-POST (need the `X-Hearth: 1` header): `/api/container` `{node, id, action: start|stop|restart|logs}` · `/api/notify/test`
+POST (need the `X-Hearth: 1` header): `/api/container` `{node, id, action: start|stop|restart|logs}` · `/api/notify/test` · `/api/gate/item` `{id?, name, url, group, icon, pinned, hidden}` · `/api/gate/item/delete` `{id}` · `/api/gate/wake` `{id}` · `/api/arsenal/action` `{node, action: check|update|prune|stack, id?, arg?}` · `/api/maint` `{node?, minutes, reason}` · `/api/maint/stop` `{id}` · `/api/journal` `{text, node?}` · `/api/journal/delete` `{id}`

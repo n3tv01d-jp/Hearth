@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ARSENAL // 工廠</title>
+<meta name="theme-color" content="#05060d">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2 29 9.5v13L16 30 3 22.5v-13z' fill='%2305060d' stroke='%233ef3ff' stroke-width='2'/%3E%3Cpath d='M10 22 19 13M17 11l4 4M9 21l2 2' stroke='%23ff3ea5' stroke-width='2.6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&family=Share+Tech+Mono&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script>try{var t=new URLSearchParams(location.search).get('theme')||localStorage.getItem('hearth.theme');if(t&&t!=='hearth')document.documentElement.dataset.theme=t}catch(e){}</script>
+</head>
+<body class="arsenal">
+<div class="bg-hex" aria-hidden="true"></div>
+<div class="bg-scan" aria-hidden="true"></div>
+
+<header class="top a-top">
+  <a class="brand" href="./" title="Back to system select">
+    <svg class="brand-mark" viewBox="0 0 48 48" aria-hidden="true">
+      <path d="M24 3 42 13.5v21L24 45 6 34.5v-21z" class="bm-hex"/>
+      <path d="M15 33 28 20" class="bm-wrench"/><path d="M26 15a6 6 0 0 0 7 8l-3-3 1-3 3-1 3 3a6 6 0 0 0-8-7z" class="bm-head"/>
+      <circle cx="17" cy="31" r="1.6" class="bm-bolt"/>
+    </svg>
+    <div>
+      <div class="logo">ARSENAL<em>アーセナル</em></div>
+      <div class="sub">工廠 · MAINTENANCE BAY</div>
+    </div>
+  </a>
+  <div class="a-stats" id="stats" aria-live="polite"></div>
+  <div class="hud-ctl">
+    <button class="tgl" id="checkAll" type="button" title="Check every machine for image updates now">⟳ CHECK NOW</button>
+    <div class="theme-pick">
+      <button class="tbtn" id="themeBtn" type="button" aria-haspopup="true" aria-expanded="false" title="Theme">
+        <span class="sw"><i style="background:var(--a1)"></i><i style="background:var(--a2)"></i><i style="background:var(--a3)"></i></span><span id="themeName">HEARTH</span>
+      </button>
+      <div class="theme-menu" id="themeMenu" hidden></div>
+    </div>
+    <div class="link" id="link" title="Hub link"><i></i><span>NO LINK</span></div>
+  </div>
+</header>
+
+<div class="a-ro" id="readonly" hidden><b>READ-ONLY // 閲覧専用</b> Updating, pruning and stack control need <code>HEARTH_ALLOW_CONTROL=1</code> on the hub, and on each agent you want to control. Checks, maintenance windows and the journal work without it.</div>
+
+<main class="a-grid">
+  <section class="panel a-upd" id="updates">
+    <div class="ph"><span class="no">01</span><h2>UPDATES</h2><span class="jp">更新</span><span class="meta" id="updMeta">—</span></div>
+    <div class="a-tools">
+      <div class="seg-tabs" id="updView" role="tablist" aria-label="Which images to list">
+        <button type="button" data-v="todo" class="on">NEEDS UPDATE</button><button type="button" data-v="all">ALL IMAGES</button>
+      </div>
+      <button class="tgl" id="updAll" type="button" hidden>⬆ UPDATE ALL</button>
+      <span class="a-hint" id="updHint"></span>
+    </div>
+    <div class="a-table" id="updList" role="table" aria-label="Container images"></div>
+    <div class="empty" id="updEmpty" hidden></div>
+  </section>
+
+  <section class="panel a-mach">
+    <div class="ph"><span class="no">02</span><h2>MACHINES</h2><span class="jp">整備</span><span class="meta" id="machMeta">—</span></div>
+    <div class="a-machines" id="machines"></div>
+  </section>
+
+  <section class="panel a-bk">
+    <div class="ph"><span class="no">03</span><h2>BACKUPS</h2><span class="jp">保管庫</span><span class="meta" id="bkMeta">—</span></div>
+    <div class="a-rows" id="backups"></div>
+  </section>
+
+  <section class="panel a-maint" id="maint">
+    <div class="ph"><span class="no">04</span><h2>MAINTENANCE</h2><span class="jp">保守</span><span class="meta" id="mtMeta">push alerts on</span></div>
+    <div class="a-rows" id="windows"></div>
+    <form class="a-form" id="mtForm" autocomplete="off">
+      <label>WHERE<select name="node" id="mtNode"><option value="">Whole fleet</option></select></label>
+      <div class="lbl">HOW LONG<div class="seg-tabs" id="mtDur"><button type="button" data-m="30">30M</button><button type="button" data-m="60" class="on">1H</button><button type="button" data-m="120">2H</button><button type="button" data-m="240">4H</button><button type="button" data-m="480">8H</button></div></div>
+      <label class="wide">WHY<input name="reason" maxlength="200" placeholder="optional: swapping the NAS fans (also goes in the journal)"></label>
+      <button class="tgl on" type="submit">🔧 START WINDOW</button>
+    </form>
+  </section>
+
+  <section class="panel a-stk">
+    <div class="ph"><span class="no">05</span><h2>STACKS</h2><span class="jp">編成</span><span class="meta" id="stkMeta">—</span></div>
+    <div id="stacks"></div>
+  </section>
+
+  <section class="panel a-jrn">
+    <div class="ph"><span class="no">06</span><h2>JOURNAL</h2><span class="jp">航海日誌</span><span class="meta" id="jrnMeta">—</span></div>
+    <form class="a-form a-note" id="jrnForm" autocomplete="off">
+      <input name="text" maxlength="500" placeholder="What changed? e.g. upgraded Postgres 15 → 16" aria-label="Journal note" required>
+      <select name="node" id="jrnNode" aria-label="Machine"><option value="">Fleet</option></select>
+      <button class="tgl on" type="submit">✎ LOG</button>
+    </form>
+    <p class="a-hint">Notes show up as violet markers on HEARTH's archive charts, so you can line changes up with the graphs.</p>
+    <ol class="a-journal" id="journal"></ol>
+  </section>
+</main>
+
+<div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" hidden>
+  <div class="modal-box">
+    <header><h3 id="modalTitle"></h3><button class="sb-x" id="modalClose" type="button" aria-label="Close">✕</button></header>
+    <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<footer class="foot">ARSENAL 工廠 · <span id="footInfo">connecting to the hub</span></footer>
+
+<script src="ui.js"></script>
+<script src="arsenal.js"></script>
+</body>
+</html>

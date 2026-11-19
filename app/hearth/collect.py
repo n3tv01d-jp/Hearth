@@ -533,6 +533,27 @@ DOCKER_ACTIONS = {
     "unpause": ("info", "▶ resumed"),
 }
 RECOVERY_WINDOW = 1800  # a start/healthy within 30 min of a failure counts as a recovery
+GATE_KEYS = ("name", "url", "port", "scheme", "path", "group", "icon", "hide", "description")
+TRAEFIK_HOST = re.compile(r"Host\(\s*`([^`]+)`")
+
+
+def gate_labels(labels: dict) -> dict:
+    """GATE hints from container labels: hearth.gate.* plus domains from Traefik / caddy-docker-proxy."""
+    out = {}
+    for k in GATE_KEYS:
+        v = labels.get(f"hearth.gate.{k}")
+        if v:
+            out[k] = str(v)[:300]
+    domains = []
+    for k, v in labels.items():
+        if k.startswith("traefik.http.routers.") and k.endswith(".rule"):
+            domains += TRAEFIK_HOST.findall(v or "")
+        elif k == "caddy" or re.fullmatch(r"caddy_\d+", k):
+            domains += [d.strip() for d in re.split(r"[\s,]+", v or "") if "." in d and "*" not in d]
+    domains = [d.split("://")[-1].split("/")[0] for d in domains]
+    if domains:
+        out["domains"] = list(dict.fromkeys(domains))[:4]
+    return out
 
 
 class DockerWatch:
@@ -568,11 +589,21 @@ class DockerWatch:
         if image.startswith("sha256:"):
             image = image[7:19]
         ports = sorted({p["PublicPort"] for p in (r.get("Ports") or []) if p.get("PublicPort")})
-        return {
+        # published TCP port -> container port, for GATE's guess at which port is the web UI
+        pmap = sorted({(p["PublicPort"], p.get("PrivatePort") or 0) for p in (r.get("Ports") or [])
+                       if p.get("PublicPort") and p.get("Type", "tcp") == "tcp"})
+        out = {
             "id": r["Id"][:12], "name": ((r.get("Names") or ["/?"])[0]).lstrip("/"), "image": image,
             "state": r.get("State") or "unknown", "status": status, "health": health, "created": r.get("Created"),
             "project": labels.get("com.docker.compose.project"), "ports": ports[:6],
+            "service": labels.get("com.docker.compose.service"),
         }
+        if pmap:
+            out["pmap"] = [list(p) for p in pmap[:12]]
+        gate = gate_labels(labels)
+        if gate:
+            out["gate"] = gate
+        return out
 
     def _list_loop(self) -> None:
         api = None
@@ -712,6 +743,8 @@ class Collector:
         self.dio = DiskIO()
         self.smart = SmartCollector()
         self.dock = DockerWatch()
+        from . import arsenal  # late import: arsenal builds on this module
+        self.arsenal = arsenal.get()
         self.tick = 0
         self._conns: dict = {}
         self._arp: list = []
@@ -721,6 +754,7 @@ class Collector:
 
     def start(self) -> None:
         self.dock.start()
+        self.arsenal.start()
 
     def collect(self) -> dict:
         t = self.tick
@@ -758,6 +792,6 @@ class Collector:
                     "swap_pct": round(sw.percent, 1), "swap_used": sw.used, "swap_total": sw.total},
             "net": net, "temps": temps, "fans": fans, "hot": hot,
             "disks": [dict(d) for d in self._disks], "diskio": self.dio.sample(),
-            "smart": self.smart.data, "docker": self.dock.snapshot(),
+            "smart": self.smart.data, "docker": self.dock.snapshot(), "arsenal": self.arsenal.snapshot(),
             "events": EVENTS.recent(),
         }

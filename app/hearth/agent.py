@@ -36,7 +36,9 @@ def hub_url() -> str:
 async def handle_cmd(ws, m: dict) -> None:
     """Run a container action the hub forwarded. control.run refuses unless HEARTH_ALLOW_CONTROL=1 here."""
     try:
-        res = await asyncio.to_thread(control.run, str(m.get("action")), str(m.get("cid")), int(m.get("lines") or 200))
+        arg = m.get("arg")
+        res = await asyncio.to_thread(control.run, str(m.get("action")), str(m.get("cid")), int(m.get("lines") or 200),
+                                      str(arg)[:200] if arg is not None else None)
     except control.ControlError as e:
         res = {"ok": False, "error": str(e)}
     except Exception as e:  # noqa: BLE001

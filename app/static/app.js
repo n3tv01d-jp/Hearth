@@ -565,10 +565,10 @@ function alignTo(h, o) { // the compare node's buckets, re-indexed onto this nod
   return out;
 }
 function markersFor(h) {
-  const step = h.step * 1000, t0 = h.ts[0], n = h.ts.length, by = new Map(), rank = { crit: 3, warn: 2, ok: 1 };
+  const step = h.step * 1000, t0 = h.ts[0], n = h.ts.length, by = new Map(), rank = { crit: 3, warn: 2, ok: 1, note: 0 };
   for (const e of S.archEvents || []) {
     const i = Math.floor((e.t - t0) / step); if (i < 0 || i >= n) continue;
-    const m = by.get(i) || { i, lvl: 'ok', items: [] };
+    const m = by.get(i) || { i, lvl: 'note', items: [] };
     m.items.push(e); if ((rank[e.lvl] || 0) > rank[m.lvl]) m.lvl = e.lvl;
     by.set(i, m);
   }
@@ -687,8 +687,8 @@ function ingestEvents(events, reset) {
       li.querySelector('.src').textContent = e.src; li.querySelector('.nd').textContent = e.node || '';
       li.querySelector('.tx').textContent = e.msg; li.title = 'Click to jump to the source'; return li;
     }, () => {});
-  // sound: only for events that arrive live, not the backlog
-  if (S.logPrimed && fresh.length) {
+  // sound: only for events that arrive live, not the backlog, and not during a maintenance window
+  if (S.logPrimed && fresh.length && !(S.maint || []).some(w => !w.node || w.node === S.node)) {
     if (fresh.some(e => e.lvl === 'crit')) SFX.play('crit');
     else if (fresh.some(e => e.rec)) SFX.play('rec');
     else if (fresh.some(e => e.lvl === 'warn')) SFX.play('warn');
@@ -960,7 +960,7 @@ function renderBeacons() {
 }
 
 /* ───────── log → source ───────── */
-const SRC_PANEL = { thermal: 'therm', docker: 'cont', control: 'cont', smart: 'stor', disk: 'stor', net: 'net', cpu: 'core', beacon: 'bea', fleet: 'core', hearth: 'core' };
+const SRC_PANEL = { thermal: 'therm', docker: 'cont', control: 'cont', smart: 'stor', disk: 'stor', net: 'net', cpu: 'core', beacon: 'bea', fleet: 'core', hearth: 'core', gate: 'log' };
 function jumpToEvent(e) {
   const first = String(e.msg).split(' ')[0];
   let node = e.node;
@@ -1193,6 +1193,14 @@ $('#sbBody').addEventListener('click', async e => {
   }
 });
 
+/* ───────── maintenance windows (opened from ARSENAL) ───────── */
+function renderMaint(list) {
+  S.maint = list;
+  const w = list.find(x => !x.node || x.node === S.node);
+  document.body.classList.toggle('maint', !!w);
+  if (w) setText($('#maintText'), `${w.scope} until ${fmt.hm(w.until)}${w.reason ? ' · ' + w.reason : ''} · push alerts muted`);
+}
+
 /* ───────── websocket ───────── */
 let ws = null, retry = 1000;
 function connect() {
@@ -1202,6 +1210,7 @@ function connect() {
   ws.onopen = () => { retry = 1000; link.classList.add('on'); setText(link.querySelector('span'), 'LINK'); };
   ws.onmessage = ev => {
     let m; try { m = JSON.parse(ev.data); } catch { return; }
+    if (m.maint) renderMaint(m.maint);
     if (m.type === 'hello') {
       const changed = m.node !== S.node || !S.archive;
       S.node = m.node; S.fleet = m.fleet || [];

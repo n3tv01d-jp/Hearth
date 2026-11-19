@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GATE // 転送門</title>
+<meta name="theme-color" content="#05060d">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2 29 9.5v13L16 30 3 22.5v-13z' fill='%2305060d' stroke='%233ef3ff' stroke-width='2'/%3E%3Cpath d='M9 11h14M10 14h12M12 14v10M20 14v10' stroke='%23ff3ea5' stroke-width='2.4' fill='none'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&family=Share+Tech+Mono&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script>try{var t=new URLSearchParams(location.search).get('theme')||localStorage.getItem('hearth.theme');if(t&&t!=='hearth')document.documentElement.dataset.theme=t}catch(e){}</script>
+</head>
+<body class="gate">
+<div class="bg-hex" aria-hidden="true"></div>
+<div class="bg-scan" aria-hidden="true"></div>
+
+<header class="top g-top">
+  <a class="brand" href="./" title="Back to system select">
+    <svg class="brand-mark" viewBox="0 0 48 48" aria-hidden="true">
+      <path d="M24 3 42 13.5v21L24 45 6 34.5v-21z" class="bm-hex"/>
+      <path d="M13 16h22M15 21h18M18 21v14M30 21v14" class="bm-gate"/>
+      <path d="M21 35v-9h6v9" class="bm-portal"/>
+    </svg>
+    <div>
+      <div class="logo">GATE<em>ゲート</em></div>
+      <div class="sub">転送門 · SERVICE PORTAL</div>
+    </div>
+  </a>
+  <label class="g-search">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg>
+    <input id="q" type="search" placeholder="JUMP TO… // 検索" autocomplete="off" spellcheck="false" aria-label="Search services">
+    <kbd>/</kbd>
+  </label>
+  <div class="hud-ctl">
+    <button class="tgl g-add" id="addBtn" type="button" title="Add a bookmark (N)">＋ LINK</button>
+    <div class="theme-pick">
+      <button class="tbtn" id="themeBtn" type="button" aria-haspopup="true" aria-expanded="false" title="Theme">
+        <span class="sw"><i style="background:var(--a1)"></i><i style="background:var(--a2)"></i><i style="background:var(--a3)"></i></span><span id="themeName">HEARTH</span>
+      </button>
+      <div class="theme-menu" id="themeMenu" hidden></div>
+    </div>
+    <div class="link" id="link" title="Hub link"><i></i><span>NO LINK</span></div>
+  </div>
+</header>
+
+<main class="g-main">
+  <section class="panel g-fav" id="favPanel" hidden>
+    <div class="ph"><span class="no">01</span><h2>FAVOURITES</h2><span class="jp">お気に入り</span><span class="meta" id="favMeta"></span></div>
+    <div class="g-tiles" id="favTiles"></div>
+  </section>
+
+  <section class="panel g-svc">
+    <div class="ph"><span class="no">02</span><h2 id="svcTitle">SERVICES</h2><span class="jp">転送先</span><span class="meta" id="svcMeta">—</span></div>
+    <div class="g-tools">
+      <div class="seg-tabs" id="groupBy" role="tablist" aria-label="Group services by">
+        <button type="button" data-g="group" class="on">GROUP</button><button type="button" data-g="node">MACHINE</button><button type="button" data-g="az">A–Z</button>
+      </div>
+      <button class="tgl" id="hiddenBtn" type="button" aria-pressed="false">SHOW HIDDEN</button>
+      <div class="g-sum" id="gSum"></div>
+    </div>
+    <div id="groups"></div>
+    <div class="empty g-empty" id="gEmpty" hidden></div>
+  </section>
+
+  <section class="panel g-mach" id="machPanel" hidden>
+    <div class="ph"><span class="no">03</span><h2>MACHINES</h2><span class="jp">機体</span><span class="meta" id="machMeta">wake-on-LAN</span></div>
+    <div class="g-machines" id="machines"></div>
+  </section>
+</main>
+
+<div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" hidden>
+  <div class="modal-box">
+    <header><h3 id="modalTitle"></h3><button class="sb-x" id="modalClose" type="button" aria-label="Close">✕</button></header>
+    <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<footer class="foot">GATE 転送門 · <span id="footInfo">connecting to the hub</span> · <a href="#" id="helpLink">KEYS ?</a></footer>
+
+<script src="ui.js"></script>
+<script src="gate.js"></script>
+</body>
+</html>

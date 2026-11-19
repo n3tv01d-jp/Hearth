@@ -49,6 +49,36 @@ try{var t=new URLSearchParams(location.search).get('theme')||localStorage.getIte
   a.slot:hover .slot-art img, a.slot:focus-visible .slot-art img { transform: scale(1.05); }
   a.slot:hover .go, a.slot:focus-visible .go { background: rgba(var(--c-rgb), .15); }
 
+  /* GATE art (inline SVG, follows the theme) */
+  .slot-art svg.art { width: 100%; height: 100%; }
+  .art-rings circle { stroke: var(--a1); opacity: .35; transform-origin: 140px 186px; }
+  .art-rings .ar1 { stroke-dasharray: 4 8; animation: artspin 18s linear infinite; }
+  .art-rings .ar2 { stroke: var(--a2); stroke-dasharray: 30 14 4 14; animation: artspin 28s linear infinite reverse; }
+  .art-rings .ar3 { stroke-dasharray: 2 10; opacity: .2; animation: artspin 40s linear infinite; }
+  .art-gate path { fill: none; stroke: var(--a2); filter: drop-shadow(0 0 6px var(--a2)); }
+  .ag-top { stroke-width: 12; } .ag-bar { stroke-width: 7; } .ag-post { stroke-width: 11; }
+  .art-portal { fill: rgba(var(--a1-rgb), .14); stroke: var(--a1); stroke-width: 1.5; filter: drop-shadow(0 0 10px var(--a1)); animation: artpulse 3s ease-in-out infinite; }
+  .art-sparks circle { fill: var(--a1); animation: artrise 4s linear infinite; }
+  .art-sparks circle:nth-child(2) { animation-delay: -1s; } .art-sparks circle:nth-child(3) { animation-delay: -2.2s; }
+  .art-sparks circle:nth-child(4) { animation-delay: -3s; } .art-sparks circle:nth-child(5) { animation-delay: -1.6s; }
+  @keyframes artspin { to { transform: rotate(360deg); } }
+  @keyframes artpulse { 50% { fill: rgba(var(--a1-rgb), .3); } }
+  @keyframes artrise { from { transform: translateY(0); opacity: 0; } 20% { opacity: 1; } to { transform: translateY(-90px); opacity: 0; } }
+  a.slot:hover .art-portal, a.slot:focus-visible .art-portal { fill: rgba(var(--a1-rgb), .4); }
+
+  /* ARSENAL art */
+  .art-grid path { fill: none; stroke: var(--a1); stroke-width: 1; opacity: .25; }
+  .art-gear { transform-origin: 140px 160px; animation: artspin 24s linear infinite; }
+  .art-gear path { fill: rgba(var(--a1-rgb), .08); stroke: var(--a1); stroke-width: 2; filter: drop-shadow(0 0 8px var(--a1)); }
+  .art-gear circle { fill: var(--bg2); stroke: var(--a1); stroke-width: 2; }
+  .art-wrench path { fill: none; stroke: var(--a2); stroke-width: 12; stroke-linecap: round; filter: drop-shadow(0 0 8px var(--a2)); }
+  .art-wrench path + path { fill: var(--a2); stroke-width: 0; }
+  .s-arsenal .art-sparks circle { fill: var(--amber); animation: artspark 1.6s ease-out infinite; transform-origin: 186px 130px; }
+  .s-arsenal .art-sparks circle:nth-child(2) { animation-delay: -.4s; } .s-arsenal .art-sparks circle:nth-child(3) { animation-delay: -.9s; }
+  .s-arsenal .art-sparks circle:nth-child(4) { animation-delay: -1.2s; } .s-arsenal .art-sparks circle:nth-child(5) { animation-delay: -.6s; }
+  @keyframes artspark { from { transform: scale(.2); opacity: 1; } to { transform: scale(2.2); opacity: 0; } }
+  a.s-arsenal:hover .art-gear, a.s-arsenal:focus-visible .art-gear { animation-duration: 6s; }
+
   /* locked slots */
   .slot.wip { --c: var(--faint); --c-rgb: 125, 147, 181; cursor: not-allowed; }
   .slot.wip .slot-art { background: repeating-linear-gradient(135deg, rgba(var(--c-rgb), .06) 0 14px, transparent 14px 28px); }
@@ -64,7 +94,7 @@ try{var t=new URLSearchParams(location.search).get('theme')||localStorage.getIte
     .slot.wip .slot-art { flex: 0 0 96px; }
     .slot.wip .slot-info { align-self: center; }
   }
-  @media (prefers-reduced-motion: reduce) { .slot, .slot-art img { transition: none; } }
+  @media (prefers-reduced-motion: reduce) { .slot, .slot-art img { transition: none; } .slot-art svg.art * { animation: none !important; } }
 </style>
 </head>
 <body>
@@ -87,23 +117,58 @@ try{var t=new URLSearchParams(location.search).get('theme')||localStorage.getIte
       </div>
     </a>
 
-    <div class="slot wip" aria-disabled="true">
+    <a class="slot s-gate" href="gate.html">
       <span class="slot-no">02</span>
-      <div class="slot-art" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2"><path d="M24 3 42 13.5v21L24 45 6 34.5v-21z"/><rect x="16" y="22" width="16" height="12"/><path d="M19 22v-4a5 5 0 0 1 10 0v4"/></svg></div>
-      <div class="slot-info">
-        <h2>—</h2><span class="jp">準備中</span>
-        <span class="go">WORK IN PROGRESS</span>
+      <div class="slot-art" aria-hidden="true">
+        <svg class="art" viewBox="0 0 280 320" preserveAspectRatio="xMidYMid slice">
+          <defs>
+            <radialGradient id="gGlow" cx="50%" cy="58%" r="45%">
+              <stop offset="0" style="stop-color:var(--a1);stop-opacity:.75"/>
+              <stop offset=".45" style="stop-color:var(--a3);stop-opacity:.25"/>
+              <stop offset="1" style="stop-color:var(--a3);stop-opacity:0"/>
+            </radialGradient>
+          </defs>
+          <rect width="280" height="320" fill="url(#gGlow)"/>
+          <g class="art-rings" fill="none" stroke-width="1.2">
+            <circle cx="140" cy="186" r="62" class="ar1"/><circle cx="140" cy="186" r="84" class="ar2"/><circle cx="140" cy="186" r="108" class="ar3"/>
+          </g>
+          <g class="art-gate" stroke-linecap="square">
+            <path d="M48 92 Q140 70 232 92" class="ag-top"/><path d="M66 120h148" class="ag-bar"/>
+            <path d="M84 96v196M196 96v196" class="ag-post"/><path d="M140 98v22" class="ag-bar"/>
+          </g>
+          <path d="M100 292V150h80v142" class="art-portal"/>
+          <g class="art-sparks"><circle cx="122" cy="230" r="1.6"/><circle cx="156" cy="200" r="1.2"/><circle cx="140" cy="260" r="1.8"/><circle cx="166" cy="246" r="1.1"/><circle cx="114" cy="186" r="1.3"/></g>
+        </svg>
       </div>
-    </div>
+      <div class="slot-info">
+        <h2>GATE</h2><span class="jp">転送門 · サービス</span>
+        <span class="go">LAUNCH ▸</span>
+      </div>
+    </a>
 
-    <div class="slot wip" aria-disabled="true">
+    <a class="slot s-arsenal" href="arsenal.html">
       <span class="slot-no">03</span>
-      <div class="slot-art" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2"><path d="M24 3 42 13.5v21L24 45 6 34.5v-21z"/><rect x="16" y="22" width="16" height="12"/><path d="M19 22v-4a5 5 0 0 1 10 0v4"/></svg></div>
-      <div class="slot-info">
-        <h2>—</h2><span class="jp">準備中</span>
-        <span class="go">WORK IN PROGRESS</span>
+      <div class="slot-art" aria-hidden="true">
+        <svg class="art" viewBox="0 0 280 320" preserveAspectRatio="xMidYMid slice">
+          <defs>
+            <radialGradient id="aGlow" cx="50%" cy="50%" r="50%">
+              <stop offset="0" style="stop-color:var(--a2);stop-opacity:.55"/>
+              <stop offset=".5" style="stop-color:var(--a3);stop-opacity:.18"/>
+              <stop offset="1" style="stop-color:var(--a3);stop-opacity:0"/>
+            </radialGradient>
+          </defs>
+          <rect width="280" height="320" fill="url(#aGlow)"/>
+          <g class="art-grid"><path d="M0 250h280M0 272h280M0 296h280M140 230 20 320M140 230 260 320M140 230v90M140 230 80 320M140 230 200 320"/></g>
+          <g class="art-gear"><path d="M140 88l10 2 4 13 12 6 12-6 8 7-6 12 5 12 13 4 1 11-13 4-4 12 6 12-7 8-12-6-12 6-4 12-11 1-4-13-12-5-12 6-8-7 6-12-5-12-13-4-1-11 13-4 4-12-6-12 7-8 12 6 12-5 4-13z"/><circle cx="140" cy="160" r="26"/></g>
+          <g class="art-wrench"><path d="M92 214 176 130"/><path d="M170 110a24 24 0 0 0 28 32l-12-12 4-12 12-4 12 12a24 24 0 0 0-32-28z"/></g>
+          <g class="art-sparks"><circle cx="186" cy="132" r="1.8"/><circle cx="196" cy="122" r="1.2"/><circle cx="178" cy="120" r="1.4"/><circle cx="202" cy="140" r="1.1"/><circle cx="190" cy="112" r="1.6"/></g>
+        </svg>
       </div>
-    </div>
+      <div class="slot-info">
+        <h2>ARSENAL</h2><span class="jp">工廠 · 整備</span>
+        <span class="go">LAUNCH ▸</span>
+      </div>
+    </a>
   </nav>
 
   <footer class="front-foot">HEARTH 炉心監視システム</footer>

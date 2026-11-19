@@ -19,7 +19,8 @@ services:
       HEARTH_PORT: "8089"                 # local healthcheck only, bound to 127.0.0.1
       HEARTH_INTERVAL: "1"
       HEARTH_IFACE_EXCLUDE: "lo,veth"
-      HEARTH_ALLOW_CONTROL: "${HEARTH_ALLOW_CONTROL:-0}"  # 1 = let the hub control containers on THIS machine
+      HEARTH_ALLOW_CONTROL: "${HEARTH_ALLOW_CONTROL:-0}"  # 1 = let the hub control / update containers on THIS machine
+      HEARTH_BACKUPS: "${HEARTH_BACKUPS:-}"          # backups on THIS machine: photos=/mnt/backup/restic@26h
       TZ: "${TZ:-UTC}"
 
     volumes:

@@ -7,6 +7,7 @@ import ipaddress
 import json
 import logging
 import os
+import re
 import secrets
 import time
 from collections import Counter, deque
@@ -15,13 +16,15 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from . import __version__, control, metrics
+from .arsenal import PRUNES, STACK_ACTS, Ops
 from .checks import Beacons
 from .collect import ALLOW_CONTROL, EVENTS, HISTORY, INTERVAL, NODE_ID, Collector, node_id
 from .control import ControlError
+from .gate import Gate, GateError
 from .notify import Notifier
 from .store import RANGES, Store
 
@@ -186,10 +189,13 @@ class Hub:
         except Exception as e:  # noqa: BLE001
             log.warning("history store disabled (%s): %s", DB_PATH, e)
         self.notifier = Notifier()
-        EVENTS.listeners.append(self.notifier.on_event)
+        self.ops = Ops(self.store)
+        # maintenance windows mute push alerts (the log and the dashboard still show everything)
+        EVENTS.listeners.append(lambda e: None if self.ops.muted(e) else self.notifier.on_event(e))
         self.ev_counts: Counter = Counter()
         EVENTS.listeners.append(lambda e: self.ev_counts.update([(e["lvl"], e["src"])]))
         self.beacons = Beacons(on_result=self._beacon_result)
+        self.gate = Gate(self)
         self.started = time.time()
         self.test_at = 0.0
         self._pruned = 0.0
@@ -300,7 +306,7 @@ class Hub:
                 snap = await asyncio.to_thread(self.collector.collect)
                 await self.ingest(self.local, snap)
                 self._check_lost()
-                m = {"type": "fleet", "nodes": self.fleet(), "events": EVENTS.recent(60)}
+                m = {"type": "fleet", "nodes": self.fleet(), "events": EVENTS.recent(60), "maint": self.ops.active()}
                 if self.beacons.items:
                     m["beacons"] = self.beacons.snapshot()
                 msg = dumps(m)
@@ -318,12 +324,12 @@ class Hub:
         await ws.send_text(dumps({"type": "hello", "node": nid, "history": node.history(), "data": data,
                                   "fleet": self.fleet(), "events": EVENTS.recent(80),
                                   "store": self.store is not None, "features": self.features(),
-                                  "beacons": self.beacons.snapshot()}))
+                                  "beacons": self.beacons.snapshot(), "maint": self.ops.active()}))
 
     # ── container control ──
-    async def command(self, nid: str, action: str, cid: str, lines: int) -> dict:
+    async def command(self, nid: str, action: str, cid: str, lines: int = 200, arg: str | None = None) -> dict:
         if nid == self.local.id:
-            return await asyncio.to_thread(control.run, action, cid, lines)
+            return await asyncio.to_thread(control.run, action, cid, lines, arg)
         ws = self.agents.get(nid)
         if ws is None:
             raise ControlError(f"{nid} is not connected")
@@ -331,7 +337,7 @@ class Hub:
         fut = asyncio.get_running_loop().create_future()
         self.pending[rid] = (nid, fut)
         try:
-            await ws.send_text(dumps({"type": "cmd", "id": rid, "action": action, "cid": cid, "lines": lines}))
+            await ws.send_text(dumps({"type": "cmd", "id": rid, "action": action, "cid": cid, "lines": lines, "arg": arg}))
             res = await asyncio.wait_for(fut, timeout=30)
         except asyncio.TimeoutError:
             raise ControlError(f"{nid} did not answer in time") from None
@@ -339,7 +345,7 @@ class Hub:
             self.pending.pop(rid, None)
         if not res.get("ok"):
             raise ControlError(str(res.get("error") or "failed")[:300])
-        return {k: v for k, v in res.items() if k in ("ok", "logs")}
+        return {k: v for k, v in res.items() if k in ("ok", "logs", "job")}
 
     def fail_pending(self, nid: str) -> None:
         for n, fut in list(self.pending.values()):
@@ -363,6 +369,8 @@ async def lifespan(_: FastAPI):
         log.info("HEARTH_TOKEN not set: agent connections are disabled")
     hub.collector.start()
     hub.beacons.start()
+    hub.gate.start()
+    hub.ops.start()
     task = asyncio.create_task(hub.run())
     yield
     task.cancel()
@@ -472,6 +480,187 @@ async def api_container(request: Request):
         if action != "logs":
             EVENTS.add("warn", "control", f"{ct['name']} ⚙ {action} failed: {e}", node=nid)
         raise HTTPException(409, str(e)) from None
+
+
+# ── GATE 転送門 ──
+async def _body(request: Request) -> dict:
+    _guard(request)
+    try:
+        body = await request.json()
+    except ValueError:
+        raise HTTPException(400, "expected a JSON body") from None
+    if not isinstance(body, dict):
+        raise HTTPException(400, "expected a JSON object")
+    return body
+
+
+@app.get("/api/gate")
+async def api_gate():
+    return await asyncio.to_thread(hub.gate.services)
+
+
+@app.get("/api/gate/icon")
+async def api_gate_icon(id: str = Query(..., max_length=200)):  # noqa: A002
+    res = await asyncio.to_thread(hub.gate.icon, id)
+    if not res:
+        return Response(status_code=404, headers={"Cache-Control": "max-age=600"})
+    # served from the hub's origin, so lock it down: no scripts even if someone opens an SVG directly
+    return Response(res[1], media_type=res[0], headers={
+        "Cache-Control": "max-age=3600", "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox"})
+
+
+@app.post("/api/gate/item")
+async def api_gate_item(request: Request):
+    body = await _body(request)
+    try:
+        res = await asyncio.to_thread(hub.gate.save, body)
+    except GateError as e:
+        raise HTTPException(409, str(e)) from None
+    who = request.client.host if request.client else "?"
+    log.info("gate: %s saved %s", who, res["id"])
+    return res
+
+
+@app.post("/api/gate/item/delete")
+async def api_gate_item_delete(request: Request):
+    body = await _body(request)
+    try:
+        return await asyncio.to_thread(hub.gate.delete, str(body.get("id") or "")[:200])
+    except GateError as e:
+        raise HTTPException(409, str(e)) from None
+
+
+@app.post("/api/gate/wake")
+async def api_gate_wake(request: Request):
+    body = await _body(request)
+    who = request.client.host if request.client else "?"
+    try:
+        res = await asyncio.to_thread(hub.gate.wake, str(body.get("id") or "")[:100])
+    except GateError as e:
+        raise HTTPException(409, str(e)) from None
+    EVENTS.add("info", "gate", f"⏻ wake-on-LAN sent to {res['name']} ({res['mac']}) from {who}")
+    return res
+
+
+# ── ARSENAL 工廠 ──
+@app.get("/api/arsenal")
+async def api_arsenal():
+    nodes = []
+    for n in sorted(hub.nodes.values(), key=lambda n: (not n.local, n.id)):
+        s = n.latest or {}
+        dk = s.get("docker") or {}
+        stacks: dict[str, dict] = {}
+        for c in dk.get("containers") or []:
+            if c.get("project"):
+                st = stacks.setdefault(c["project"], {"name": c["project"], "running": 0, "total": 0, "bad": 0, "self": False})
+                st["total"] += 1
+                st["running"] += c.get("state") == "running"
+                st["bad"] += c.get("health") == "unhealthy" or c.get("state") in ("restarting", "dead")
+                st["self"] |= bool(c.get("self"))
+        host = s.get("host") or {}
+        nodes.append({"id": n.id, "name": host.get("name", n.id), "local": n.local, "online": n.online,
+                      "os": host.get("os"), "kernel": host.get("kernel"), "uptime": host.get("uptime"),
+                      "arch": host.get("arch"), "docker": dk.get("online"), "control": bool(dk.get("control")),
+                      "arsenal": s.get("arsenal"), "stacks": sorted(stacks.values(), key=lambda x: x["name"])})
+    notes = await asyncio.to_thread(hub.store.notes, None, 0, None, 100) if hub.store else []
+    return {"nodes": nodes, "maint": hub.ops.active(), "heartbeats": hub.ops.heartbeats(), "journal": notes,
+            "hub_control": ALLOW_CONTROL, "store": hub.store is not None, "t": int(time.time() * 1000)}
+
+
+@app.post("/api/arsenal/action")
+async def api_arsenal_action(request: Request):
+    body = await _body(request)
+    nid, action = str(body.get("node") or ""), str(body.get("action") or "")
+    cid, arg = str(body.get("id") or ""), body.get("arg")
+    arg = str(arg)[:200] if arg is not None else None
+    if action not in ("check", "update", "prune", "stack"):
+        raise HTTPException(400, "action must be check, update, prune or stack")
+    if action != "check" and not ALLOW_CONTROL:
+        raise HTTPException(403, "control is disabled on the hub (set HEARTH_ALLOW_CONTROL=1)")
+    if action == "prune" and arg not in PRUNES:
+        raise HTTPException(400, f"arg must be one of {', '.join(PRUNES)}")
+    if action == "stack" and (arg or "").rpartition(":")[2] not in STACK_ACTS:
+        raise HTTPException(400, "arg must be project:start|stop|restart")
+    if nid not in hub.nodes:
+        raise HTTPException(404, f"unknown node {nid!r}")
+    who = request.client.host if request.client else "?"
+    if action != "check":
+        what = {"update": f"update {cid}", "prune": f"prune {arg}", "stack": f"stack {arg}"}[action]
+        EVENTS.add("info", "arsenal", f"⚙ {what} requested from {who}", node=nid)
+    try:
+        return await hub.command(nid, action, cid, 0, arg)
+    except ControlError as e:
+        raise HTTPException(409, str(e)) from None
+
+
+@app.post("/api/maint")
+async def api_maint(request: Request):
+    body = await _body(request)
+    node = body.get("node") or None
+    if node is not None and str(node) not in hub.nodes:
+        raise HTTPException(404, "unknown node")
+    try:
+        minutes = max(5, min(int(body.get("minutes") or 60), 7 * 24 * 60))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "minutes must be a number") from None
+    reason = re.sub(r"[\x00-\x1f\x7f]", "", str(body.get("reason") or "")).strip()[:200]
+    who = request.client.host if request.client else "?"
+    return await asyncio.to_thread(hub.ops.open_window, str(node) if node else None, minutes, reason, who)
+
+
+@app.post("/api/maint/stop")
+async def api_maint_stop(request: Request):
+    body = await _body(request)
+    if not hub.ops.close_window(str(body.get("id") or "")):
+        raise HTTPException(404, "no such maintenance window")
+    return {"ok": True}
+
+
+@app.get("/api/journal")
+async def api_journal(node: str | None = None, limit: int = Query(100, ge=1, le=1000)):
+    return await asyncio.to_thread(_need_store().notes, node, 0, None, limit)
+
+
+@app.post("/api/journal")
+async def api_journal_add(request: Request):
+    body = await _body(request)
+    text = re.sub(r"[\x00-\x1f\x7f]", " ", str(body.get("text") or "")).strip()[:500]
+    if not text:
+        raise HTTPException(400, "write something first")
+    node = body.get("node") or None
+    if node is not None and str(node) not in hub.nodes:
+        raise HTTPException(404, "unknown node")
+    _need_store()
+    who = request.client.host if request.client else "?"
+    return await asyncio.to_thread(hub.ops.add_note, text, str(node) if node else None, who)
+
+
+@app.post("/api/journal/delete")
+async def api_journal_del(request: Request):
+    body = await _body(request)
+    try:
+        nid = int(body.get("id"))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "expected {id}") from None
+    if not await asyncio.to_thread(_need_store().del_note, nid):
+        raise HTTPException(404, "no such note")
+    return {"ok": True}
+
+
+@app.api_route("/api/ping/{name}", methods=["GET", "POST", "HEAD"])
+@app.api_route("/api/ping/{name}/{result}", methods=["GET", "POST", "HEAD"])
+async def api_ping(name: str, request: Request, result: str = "ok", msg: str | None = Query(None, max_length=200)):
+    """Heartbeat for backup jobs: `curl -fsS http://hub:8088/api/ping/offsite` (append /fail on errors)."""
+    host = request.client.host if request.client else None
+    if not lan_allowed(host):
+        raise HTTPException(403, "pings are accepted from LAN addresses only")
+    if result not in ("ok", "fail"):
+        raise HTTPException(404, "use /api/ping/<name> or /api/ping/<name>/fail")
+    try:
+        return hub.ops.ping(node_id(name), result == "ok", msg)
+    except LookupError:
+        raise HTTPException(404, f"unknown heartbeat {name!r} (add it to HEARTH_HEARTBEATS)") from None
 
 
 @app.get("/api/snapshot")

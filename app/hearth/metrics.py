@@ -103,6 +103,33 @@ def render(hub) -> str:  # noqa: C901 (one flat walk over the snapshot)
             m.add("hearth_smart_temperature_celsius", G, "Drive temperature", d.get("temp"), **lb)
             m.add("hearth_smart_power_on_hours", C, "Drive power-on hours", d.get("hours"), **lb)
             m.add("hearth_smart_written_bytes", C, "Bytes written over the drive's life", d.get("written"), **lb)
+        ars = s.get("arsenal") or {}
+        if ars:
+            ups = ars.get("updates") or []
+            m.add("hearth_image_updates_available", G, "Containers whose image has a newer version (ARSENAL)",
+                  sum(1 for u in ups if u.get("state") in ("update", "pulled")), node=node)
+            for u in ups:
+                if u.get("state") in ("update", "pulled", "current"):
+                    m.add("hearth_container_update_available", G, "1 if a newer image exists for the container",
+                          u["state"] != "current", node=node, name=u.get("name"), image=u.get("image"))
+            host_m = ars.get("host") or {}
+            if host_m:
+                m.add("hearth_reboot_required", G, "1 if the host needs a reboot (new kernel or OS flag)", host_m.get("reboot"), node=node)
+                m.add("hearth_os_updates_pending", G, "Pending OS package updates, where the OS reports them", host_m.get("pending"), node=node)
+            for b in ars.get("backups") or []:
+                lb = {"node": node, "name": b.get("name"), "kind": b.get("kind")}
+                m.add("hearth_backup_last_success_timestamp_seconds", G, "When the backup last produced data",
+                      b["last"] / 1000 if b.get("last") else None, **lb)
+                m.add("hearth_backup_ok", G, "1 if the backup is within its max age", b.get("lvl") == "ok", **lb)
+    for hb in hub.ops.heartbeats():
+        m.add("hearth_heartbeat_last_ping_timestamp_seconds", G, "Last successful ping from a backup job",
+              hb["last"] / 1000 if hb.get("last") else None, name=hb["name"])
+        m.add("hearth_heartbeat_ok", G, "1 if the job pinged within its max age", hb.get("lvl") == "ok", name=hb["name"])
+    m.add("hearth_maintenance_active", G, "Open maintenance windows (push alerts muted)", len(hub.ops.active()))
+    for e in hub.gate.services()["services"]:
+        if (e.get("cert") or {}).get("until"):
+            m.add("hearth_cert_expiry_timestamp_seconds", G, "TLS certificate notAfter of a GATE service",
+                  e["cert"]["until"] / 1000, name=e["name"], url=e["url"].replace("__HOST__", "hub"))
     for b in hub.beacons.snapshot():
         lb = {"name": b["name"], "kind": b["kind"], "target": b["target"]}
         m.add("hearth_beacon_up", G, "1 if the beacon answers", None if b["up"] is None else b["up"], **lb)

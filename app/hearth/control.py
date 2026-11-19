@@ -10,6 +10,7 @@ import re
 from .collect import ALLOW_CONTROL, DOCKER_HOST, SELF_CONTAINER, docker
 
 ACTIONS = ("start", "stop", "restart", "logs")
+ARSENAL_ACTIONS = ("check", "update", "prune", "stack")
 CID = re.compile(r"^[0-9a-f]{12,64}$")
 ANSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 MAX_LOG = 256 * 1024
@@ -19,7 +20,13 @@ class ControlError(Exception):
     pass
 
 
-def run(action: str, cid: str, lines: int = 200) -> dict:
+def run(action: str, cid: str, lines: int = 200, arg: str | None = None) -> dict:
+    if action in ARSENAL_ACTIONS:
+        from . import arsenal
+        try:
+            return arsenal.get().request(action, cid, arg)
+        except (PermissionError, LookupError, ValueError, RuntimeError) as e:
+            raise ControlError(str(e)[:300]) from e
     if not ALLOW_CONTROL:
         raise ControlError("container control is disabled on this machine (set HEARTH_ALLOW_CONTROL=1)")
     if action not in ACTIONS:

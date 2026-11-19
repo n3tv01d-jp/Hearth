@@ -42,6 +42,13 @@ CREATE TABLE IF NOT EXISTS records (
 CREATE TABLE IF NOT EXISTS beacons (
   name TEXT NOT NULL, ts INTEGER NOT NULL, up INTEGER, rtt REAL,
   PRIMARY KEY (name, ts)) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS gate_items (
+  id TEXT PRIMARY KEY, kind TEXT NOT NULL, name TEXT, grp TEXT, url TEXT, icon TEXT,
+  hidden INTEGER DEFAULT 0, pinned INTEGER DEFAULT 0, created INTEGER) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS gate_seen (id TEXT PRIMARY KEY, node TEXT, data TEXT, ts INTEGER) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS journal (id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, node TEXT, text TEXT, who TEXT);
+CREATE INDEX IF NOT EXISTS journal_ts ON journal (ts);
+CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT, ts INTEGER) WITHOUT ROWID;
 """
 # "nginx ↻ restarted" / "nginx ✖ exited (137)": restarts and crashes, as logged by DockerWatch.
 RESTART_RE = re.compile(r"^(\S+) (?:↻ restarted|✖ exited \((?!0\)|143\))[^)]*\))")
@@ -103,6 +110,54 @@ class Store:
         for table in ("samples", "disks", "events", "beacons"):
             self.q(f"DELETE FROM {table} WHERE ts < ?", (cut,))  # noqa: S608 (fixed table names)
         self.q("DELETE FROM ct_usage WHERE day < ?", (_day(cut),))
+
+    # ── GATE: link overrides, bookmarks, remembered services, small key/values ──
+    GATE_COLS = ("id", "kind", "name", "grp", "url", "icon", "hidden", "pinned", "created")
+
+    def gate_items(self) -> list[dict]:
+        return [dict(zip(self.GATE_COLS, r)) for r in self.q(f"SELECT {', '.join(self.GATE_COLS)} FROM gate_items")]
+
+    def gate_put(self, item: dict) -> None:
+        self.q("INSERT OR REPLACE INTO gate_items VALUES (?,?,?,?,?,?,?,?,?)",
+               tuple(item.get(c) for c in self.GATE_COLS))
+
+    def gate_del(self, iid: str) -> None:
+        self.q("DELETE FROM gate_items WHERE id = ?", (iid,))
+
+    def gate_seen(self) -> dict[str, tuple[str, str]]:
+        return {r[0]: (r[1], r[2]) for r in self.q("SELECT id, node, data FROM gate_seen")}
+
+    def gate_seen_put(self, rows: list[tuple[str, str, str]]) -> None:
+        now = int(time.time())
+        self.many("INSERT OR REPLACE INTO gate_seen VALUES (?,?,?,?)", [(i, n, d, now) for i, n, d in rows])
+
+    def gate_seen_del(self, ids: list[str]) -> None:
+        self.many("DELETE FROM gate_seen WHERE id = ?", [(i,) for i in ids])
+
+    def kv_get(self, prefix: str) -> dict[str, str]:
+        return dict(self.q("SELECT k, v FROM kv WHERE k LIKE ? || '%'", (prefix,)))
+
+    def kv_put(self, k: str, v: str) -> None:
+        self.q("INSERT OR REPLACE INTO kv VALUES (?,?,?)", (k, v, int(time.time())))
+
+    # ── change journal (kept forever, unlike events) ──
+    def add_note(self, text: str, node: str | None, who: str) -> dict:
+        ts = int(time.time())
+        with self.lock:
+            cur = self.db.execute("INSERT INTO journal (ts, node, text, who) VALUES (?,?,?,?)", (ts, node, text, who))
+            nid = cur.lastrowid
+        return {"id": nid, "t": ts * 1000, "node": node, "text": text, "who": who}
+
+    def notes(self, node: str | None = None, start: int = 0, end: int | None = None, limit: int = 200) -> list[dict]:
+        sql, args = "SELECT id, ts, node, text, who FROM journal WHERE ts >= ? AND ts < ?", [start, end or 2 ** 40]
+        if node:
+            sql += " AND (node = ? OR node IS NULL)"
+            args.append(node)
+        rows = self.q(sql + " ORDER BY ts DESC LIMIT ?", (*args, limit))
+        return [{"id": r[0], "t": r[1] * 1000, "node": r[2], "text": r[3], "who": r[4]} for r in rows]
+
+    def del_note(self, nid: int) -> bool:
+        return bool(self.q("DELETE FROM journal WHERE id = ? RETURNING id", (nid,)))
 
     # ── reads ──
     def recent_events(self, n: int = 100) -> list[dict]:
@@ -181,8 +236,12 @@ class Store:
         """Warnings, criticals and recoveries for one node: the markers on the archive charts."""
         rows = self.q("SELECT id, ts, lvl, src, msg, rec FROM events WHERE node = ? AND ts >= ? AND ts < ? "
                       "AND (lvl IN ('warn', 'crit') OR rec = 1) ORDER BY id DESC LIMIT ?", (node, start, end, limit))
-        return [{"id": r[0], "t": r[1] * 1000, "lvl": "ok" if r[5] else r[2], "src": r[3], "msg": r[4]}
-                for r in reversed(rows)]
+        out = [{"id": r[0], "t": r[1] * 1000, "lvl": "ok" if r[5] else r[2], "src": r[3], "msg": r[4]}
+               for r in reversed(rows) if r[3] != "journal"]
+        # change-journal notes show up on the archive charts as their own markers
+        out += [{"id": -n["id"], "t": n["t"], "lvl": "note", "src": "journal", "msg": "✎ " + n["text"]}
+                for n in self.notes(node, start, end)]
+        return sorted(out, key=lambda e: e["t"])
 
     def beacon_uptime(self, name: str, since: int) -> float | None:
         v = self.q("SELECT AVG(up) FROM beacons WHERE name = ? AND ts >= ?", (name, since))[0][0]

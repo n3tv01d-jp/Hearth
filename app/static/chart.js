@@ -17,7 +17,7 @@ function niceMax(v) {
   return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * p;
 }
 const escT = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const markColor = l => PAL[l === 'crit' ? 'red' : l === 'warn' ? 'amber' : 'green'];
+const markColor = l => PAL[l === 'crit' ? 'red' : l === 'warn' ? 'amber' : l === 'note' ? 'a3' : 'green'];
 function hexA(hex, a) {
   const h = hex.replace('#', '');
   const n = parseInt(h.length === 3 ? h.split('').map(c => c + c).join('') : h, 16);
