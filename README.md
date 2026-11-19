@@ -6,13 +6,14 @@
 
 A sci-fi anime-styled homelab dashboard. It streams live telemetry from every machine on your LAN to your browser, keeps an archive of history, and has a kaomoji navigator who comments on what's happening.
 
-The start page is a **system select** with three slots, all served by the same hub and fed by the same agents:
+The start page is a **system select** with four slots. The first three are served by the same hub and fed by the same agents:
 
 | Slot | System | What it's for |
 |---|---|---|
 | 01 | **HEARTH** 炉心 | Watch: live telemetry, archive, alerts, KAGARI (`hearth.html`) |
 | 02 | **GATE** 転送門 | Go: a start page for every web UI in the fleet, built automatically (`gate.html`) |
 | 03 | **ARSENAL** 工廠 | Fix: image updates, reboots, disk clean-up, backups, maintenance windows, change journal (`arsenal.html`) |
+| 04 | **RYUCORE** 竜核 | Think: a link to your [RyuCore](https://github.com/n3tv01d-jp/RyuCore) AI command core. The first click opens a setup dialog for its URL (stored on the hub); after that the card launches it, and the ⚙ button edits or unlinks it |
 
 | Panel | What it shows |
 |---|---|
@@ -259,6 +260,6 @@ Turn it off with `HEARTH_METRICS=0`.
 
 ## Endpoints (hub)
 
-`/` system select · `/hearth.html` · `/gate.html` · `/arsenal.html` · `/ws` browser stream · `/agent` agent stream · `/api/fleet` · `/api/snapshot?node=` · `/api/history?node=&range=1h|6h|24h|7d|30d` · `/api/summary?node=&hours=24` · `/api/events?node=&range=` · `/api/report?node=&days=1-30` · `/api/insights?node=` · `/api/beacons` · `/api/info` · `/api/gate` · `/api/gate/icon?id=` · `/api/arsenal` · `/api/journal?node=` · `/api/ping/<name>[/fail]` · `/metrics` · `/healthz`
+`/` system select · `/hearth.html` · `/gate.html` · `/arsenal.html` · `/ws` browser stream · `/agent` agent stream · `/api/fleet` · `/api/snapshot?node=` · `/api/history?node=&range=1h|6h|24h|7d|30d` · `/api/summary?node=&hours=24` · `/api/events?node=&range=` · `/api/report?node=&days=1-30` · `/api/insights?node=` · `/api/beacons` · `/api/info` · `/api/gate` · `/api/gate/icon?id=` · `/api/arsenal` · `/api/ryucore` · `/api/journal?node=` · `/api/ping/<name>[/fail]` · `/metrics` · `/healthz`
 
-POST (need the `X-Hearth: 1` header): `/api/container` `{node, id, action: start|stop|restart|logs}` · `/api/notify/test` · `/api/gate/item` `{id?, name, url, group, icon, pinned, hidden}` · `/api/gate/item/delete` `{id}` · `/api/gate/wake` `{id}` · `/api/arsenal/action` `{node, action: check|update|prune|stack, id?, arg?}` · `/api/maint` `{node?, minutes, reason}` · `/api/maint/stop` `{id}` · `/api/journal` `{text, node?}` · `/api/journal/delete` `{id}`
+POST (need the `X-Hearth: 1` header): `/api/container` `{node, id, action: start|stop|restart|logs}` · `/api/notify/test` · `/api/gate/item` `{id?, name, url, group, icon, pinned, hidden}` · `/api/gate/item/delete` `{id}` · `/api/gate/wake` `{id}` · `/api/arsenal/action` `{node, action: check|update|prune|stack, id?, arg?}` · `/api/maint` `{node?, minutes, reason}` · `/api/maint/stop` `{id}` · `/api/journal` `{text, node?}` · `/api/journal/delete` `{id}` · `/api/ryucore` `{url, newtab}` (empty url unlinks)

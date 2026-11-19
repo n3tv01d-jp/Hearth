@@ -543,6 +543,42 @@ async def api_gate_wake(request: Request):
     return res
 
 
+# ── RYUCORE 竜核 (launcher link to a RyuCore instance) ──
+RYU_KEY = "link:ryucore"
+
+
+def _ryu_cfg(store: Store) -> dict:
+    try:
+        cfg = json.loads(store.kv_get(RYU_KEY).get(RYU_KEY) or "{}")
+    except ValueError:
+        cfg = {}
+    return cfg if isinstance(cfg, dict) and cfg.get("url") else {}
+
+
+@app.get("/api/ryucore")
+async def api_ryucore():
+    return await asyncio.to_thread(_ryu_cfg, _need_store())
+
+
+@app.post("/api/ryucore")
+async def api_ryucore_save(request: Request):
+    body = await _body(request)
+    store = _need_store()
+    url = str(body.get("url") or "").strip()[:500]
+    if not url:  # empty url = unlink
+        await asyncio.to_thread(store.kv_put, RYU_KEY, "{}")
+        return {}
+    if not re.match(r"^https?://", url, re.IGNORECASE):
+        url = "http://" + url
+    if not re.match(r"^https?://[^\s/?#]+(?:[/?#][^\s]*)?$", url, re.IGNORECASE):
+        raise HTTPException(400, "url must look like http://host:port")
+    cfg = {"url": url.rstrip("/") if url.count("/") == 3 else url, "newtab": bool(body.get("newtab"))}
+    await asyncio.to_thread(store.kv_put, RYU_KEY, dumps(cfg))
+    who = request.client.host if request.client else "?"
+    log.info("ryucore: %s linked %s", who, cfg["url"])
+    return cfg
+
+
 # ── ARSENAL 工廠 ──
 @app.get("/api/arsenal")
 async def api_arsenal():
