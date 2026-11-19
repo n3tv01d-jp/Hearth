@@ -1,6 +1,16 @@
 /* GATE // 転送門 — service portal client */
 'use strict';
 
+const bootDone = bootSeq([
+  'GATE PORTAL v3.3 // 転送門',
+  'aligning torii array .............. <span class="ok">OK</span>',
+  'resolving service manifests ....... <span class="ok">OK</span>',
+  'mapping fleet routes // 経路 ....... <span class="ok">OK</span>',
+  'priming wake-on-LAN relay ......... <span class="ok">OK</span>',
+  'stabilising jump field ............ <span class="ok">OK</span>',
+  '>> 開門 — gate open, choose a destination',
+]);
+
 let hits = {};
 try { hits = JSON.parse(store.get('gate.hits') || '{}') || {}; } catch { hits = {}; }
 
@@ -25,6 +35,7 @@ async function poll() {
     const d = await r.json();
     S.services = d.services; S.machines = d.machines; S.edit = d.edit; S.hub = d.hub; S.ok = true; failures = 0;
     render();
+    bootDone();
   } catch (e) {
     failures++; S.ok = false; renderLink();
     if (failures === 1) setText($('#footInfo'), `hub unreachable (${e.message})`);

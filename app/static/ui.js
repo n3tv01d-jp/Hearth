@@ -116,3 +116,27 @@ const fmt = {
   },
 };
 const sinceMs = ms => (ms ? ago(Math.max(0, Math.round((Date.now() - ms) / 1000))) : '—');
+
+/* ───────── boot sequence (same intro as HEARTH, honours its "Boot intro" setting) ───────── */
+function bootSeq(lines) {
+  const root = $('#boot'), el = $('#bootLog'), bar = $('#bootBar');
+  const st = { start: performance.now(), lines: false, data: false, done: false };
+  const finish = (now = false) => { if (st.done) return; st.done = true; setTimeout(() => root.classList.add('done'), now ? 0 : 250); };
+  if (!root) return () => {};
+  if (QS.get('boot') === '0' || (QS.get('boot') !== '1' && store.get('boot') === '0')) { st.done = true; root.hidden = true; return () => {}; }
+  const check = () => { if (!st.done && ((st.lines && st.data) || performance.now() - st.start > 5000)) finish(); };
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    el.innerHTML = lines.join('\n'); bar.style.width = '100%'; st.lines = true;
+  } else {
+    let i = 0;
+    const step = () => {
+      el.innerHTML = lines.slice(0, ++i).join('\n');
+      bar.style.width = (i / lines.length * 100) + '%';
+      if (i < lines.length) setTimeout(step, 150 + Math.random() * 120); else { st.lines = true; check(); }
+    };
+    step();
+  }
+  const timer = setInterval(() => { check(); if (st.done) clearInterval(timer); }, 200);
+  root.addEventListener('click', () => finish(true));
+  return () => { st.data = true; check(); };
+}

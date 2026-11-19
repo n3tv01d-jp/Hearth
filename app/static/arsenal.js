@@ -1,6 +1,16 @@
 /* ARSENAL // 工廠 — maintenance bay client */
 'use strict';
 
+const bootDone = bootSeq([
+  'ARSENAL BAY v3.3 // 工廠',
+  'pressurising maintenance dock ..... <span class="ok">OK</span>',
+  'inventorying image registry ....... <span class="ok">OK</span>',
+  'arming update gantry // 更新 ....... <span class="ok">OK</span>',
+  'mounting backup vault // 保管庫 .... <span class="ok">OK</span>',
+  'opening service journal ........... <span class="ok">OK</span>',
+  '>> 整備準備完了 — bay ready, commander',
+]);
+
 const A = { d: null, ok: false, view: store.get('arsenal.view') || 'todo', minutes: 60, jobs: new Map(), primed: false, pending: new Set() };
 const UPD = {
   update: ['UPDATE AVAILABLE', 'warn'], pulled: ['NEW IMAGE PULLED · RECREATE', 'warn'], current: ['UP TO DATE', 'ok'],
@@ -20,6 +30,7 @@ async function poll() {
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     A.d = await r.json(); A.ok = true;
     render();
+    bootDone();
   } catch (e) {
     A.ok = false; renderLink(); setText($('#footInfo'), `hub unreachable (${e.message})`);
   }

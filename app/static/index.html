@@ -66,18 +66,31 @@ try{var t=new URLSearchParams(location.search).get('theme')||localStorage.getIte
   @keyframes artrise { from { transform: translateY(0); opacity: 0; } 20% { opacity: 1; } to { transform: translateY(-90px); opacity: 0; } }
   a.slot:hover .art-portal, a.slot:focus-visible .art-portal { fill: rgba(var(--a1-rgb), .4); }
 
-  /* ARSENAL art */
-  .art-grid path { fill: none; stroke: var(--a1); stroke-width: 1; opacity: .25; }
-  .art-gear { transform-origin: 140px 160px; animation: artspin 24s linear infinite; }
-  .art-gear path { fill: rgba(var(--a1-rgb), .08); stroke: var(--a1); stroke-width: 2; filter: drop-shadow(0 0 8px var(--a1)); }
-  .art-gear circle { fill: var(--bg2); stroke: var(--a1); stroke-width: 2; }
-  .art-wrench path { fill: none; stroke: var(--a2); stroke-width: 12; stroke-linecap: round; filter: drop-shadow(0 0 8px var(--a2)); }
-  .art-wrench path + path { fill: var(--a2); stroke-width: 0; }
-  .s-arsenal .art-sparks circle { fill: var(--amber); animation: artspark 1.6s ease-out infinite; transform-origin: 186px 130px; }
-  .s-arsenal .art-sparks circle:nth-child(2) { animation-delay: -.4s; } .s-arsenal .art-sparks circle:nth-child(3) { animation-delay: -.9s; }
-  .s-arsenal .art-sparks circle:nth-child(4) { animation-delay: -1.2s; } .s-arsenal .art-sparks circle:nth-child(5) { animation-delay: -.6s; }
-  @keyframes artspark { from { transform: scale(.2); opacity: 1; } to { transform: scale(2.2); opacity: 0; } }
-  a.s-arsenal:hover .art-gear, a.s-arsenal:focus-visible .art-gear { animation-duration: 6s; }
+  /* ARSENAL art: a maintenance bay, gantry crane swapping a container into the stack */
+  .art-floor path { fill: none; stroke: var(--a1); stroke-width: 1; opacity: .22; }
+  .art-frame path { fill: none; stroke: var(--a1); stroke-width: 1.5; opacity: .5; }
+  .art-frame .af-in { opacity: .18; stroke-dasharray: 6 5; }
+  .art-cube path { stroke: currentColor; stroke-width: 1.2; stroke-linejoin: round; fill: currentColor; }
+  .art-cube .cf-t { fill-opacity: .38; } .art-cube .cf-l { fill-opacity: .1; } .art-cube .cf-r { fill-opacity: .22; }
+  .art-cube .cf-rib { fill: none; stroke-width: 1; opacity: .45; }
+  .art-stack use { color: var(--a1); filter: drop-shadow(0 0 5px rgba(var(--a1-rgb), .55)); }
+  .art-stack .stale { animation: artstale 2.4s ease-in-out infinite; }
+  .art-rail { fill: none; stroke: var(--a2); stroke-width: 4; filter: drop-shadow(0 0 6px var(--a2)); }
+  .art-crane { animation: artcrane 9s ease-in-out infinite; }
+  .art-load { animation: artbob 3s ease-in-out infinite; }
+  .art-load use { color: var(--a2); filter: drop-shadow(0 0 8px var(--a2)); }
+  .art-load line { stroke: var(--a2); stroke-width: 1.4; }
+  .art-trolley { fill: var(--bg2); stroke: var(--a2); stroke-width: 1.5; }
+  .art-scan { fill: var(--green); filter: drop-shadow(0 0 4px var(--green)); animation: artscan 3.4s linear infinite; }
+  .art-leds rect { fill: var(--green); animation: artblink 1.8s steps(2, jump-none) infinite; }
+  .art-leds rect:nth-child(2) { fill: var(--amber); animation-delay: -.6s; } .art-leds rect:nth-child(3) { animation-delay: -1.2s; }
+  @keyframes artcrane { 0%, 8% { transform: translateX(-46px); } 42%, 58% { transform: translateX(0); } 92%, 100% { transform: translateX(46px); } }
+  @keyframes artbob { 50% { transform: translateY(7px); } }
+  @keyframes artscan { from { transform: translateY(0); opacity: 0; } 12%, 88% { opacity: .9; } to { transform: translateY(84px); opacity: 0; } }
+  @keyframes artstale { 50% { color: var(--amber); } }
+  @keyframes artblink { 50% { opacity: .15; } }
+  a.s-arsenal:hover .art-crane, a.s-arsenal:focus-visible .art-crane { animation-duration: 3s; }
+  a.s-arsenal:hover .art-scan, a.s-arsenal:focus-visible .art-scan { animation-duration: 1.4s; }
 
   /* locked slots */
   .slot.wip { --c: var(--faint); --c-rgb: 125, 147, 181; cursor: not-allowed; }
@@ -151,17 +164,34 @@ try{var t=new URLSearchParams(location.search).get('theme')||localStorage.getIte
       <div class="slot-art" aria-hidden="true">
         <svg class="art" viewBox="0 0 280 320" preserveAspectRatio="xMidYMid slice">
           <defs>
-            <radialGradient id="aGlow" cx="50%" cy="50%" r="50%">
-              <stop offset="0" style="stop-color:var(--a2);stop-opacity:.55"/>
-              <stop offset=".5" style="stop-color:var(--a3);stop-opacity:.18"/>
+            <radialGradient id="aGlow" cx="50%" cy="62%" r="52%">
+              <stop offset="0" style="stop-color:var(--a2);stop-opacity:.45"/>
+              <stop offset=".5" style="stop-color:var(--a3);stop-opacity:.16"/>
               <stop offset="1" style="stop-color:var(--a3);stop-opacity:0"/>
             </radialGradient>
+            <pattern id="aHaz" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+              <rect width="5" height="10" style="fill:var(--amber)"/>
+            </pattern>
+            <g id="aCube" class="art-cube">
+              <path class="cf-l" d="M-24 0 0 12v28l-24-12z"/><path class="cf-r" d="M24 0 0 12v28l24-12z"/><path class="cf-t" d="M0-12 24 0 0 12-24 0z"/>
+              <path class="cf-rib" d="M-8 8v28M-16 4v28M8 8v28M16 4v28"/>
+            </g>
           </defs>
           <rect width="280" height="320" fill="url(#aGlow)"/>
-          <g class="art-grid"><path d="M0 250h280M0 272h280M0 296h280M140 230 20 320M140 230 260 320M140 230v90M140 230 80 320M140 230 200 320"/></g>
-          <g class="art-gear"><path d="M140 88l10 2 4 13 12 6 12-6 8 7-6 12 5 12 13 4 1 11-13 4-4 12 6 12-7 8-12-6-12 6-4 12-11 1-4-13-12-5-12 6-8-7 6-12-5-12-13-4-1-11 13-4 4-12-6-12 7-8 12 6 12-5 4-13z"/><circle cx="140" cy="160" r="26"/></g>
-          <g class="art-wrench"><path d="M92 214 176 130"/><path d="M170 110a24 24 0 0 0 28 32l-12-12 4-12 12-4 12 12a24 24 0 0 0-32-28z"/></g>
-          <g class="art-sparks"><circle cx="186" cy="132" r="1.8"/><circle cx="196" cy="122" r="1.2"/><circle cx="178" cy="120" r="1.4"/><circle cx="202" cy="140" r="1.1"/><circle cx="190" cy="112" r="1.6"/></g>
+          <g class="art-floor"><path d="M0 252h280M0 270h280M0 296h280M140 238 10 320M140 238 270 320M140 238 70 320M140 238 210 320M140 238v82"/></g>
+          <g class="art-frame"><path d="M44 238V100l30-30h132l30 30v138"/><path class="af-in" d="M58 238V106l22-22h120l22 22v132"/></g>
+          <rect x="44" y="236" width="192" height="5" fill="url(#aHaz)" opacity=".7"/>
+          <g class="art-leds"><rect x="49" y="140" width="4" height="7"/><rect x="49" y="152" width="4" height="7"/><rect x="49" y="164" width="4" height="7"/></g>
+          <g class="art-stack">
+            <use href="#aCube" x="116" y="198"/><use href="#aCube" x="164" y="198" class="stale"/>
+            <use href="#aCube" x="140" y="210"/><use href="#aCube" x="140" y="182"/>
+          </g>
+          <rect class="art-scan" x="80" y="164" width="120" height="1.6"/>
+          <path class="art-rail" d="M58 84h164"/>
+          <g class="art-crane">
+            <g class="art-load"><line x1="140" y1="84" x2="140" y2="118"/><use href="#aCube" x="140" y="130"/></g>
+            <rect class="art-trolley" x="126" y="78" width="28" height="16"/>
+          </g>
         </svg>
       </div>
       <div class="slot-info">
