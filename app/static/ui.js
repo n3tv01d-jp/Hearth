@@ -33,33 +33,50 @@ const THEMES = [
   ['eclipse', 'ECLIPSE', '月蝕'], ['kurenai', 'KURENAI', '紅'], ['abyss', 'ABYSS', '深海'], ['aurum', 'AURUM', '黄金'],
   ['specter', 'SPECTER', '幽霊'],
 ].map(([id, name, jp]) => ({ id, name, jp }));
-function applyTheme(id) {
+LOOK.merge(THEMES);
+/** push: also make it the fleet theme on the hub (a user's pick, not a sync). */
+function applyTheme(id, push = false) {
   const t = THEMES.find(x => x.id === id) || THEMES[0];
-  if (t.id === 'hearth') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t.id;
+  LOOK.paint(t.id);
   store.set('theme', t.id);
+  if (push) LOOK.push(t.id);
   setText($('#themeName'), t.name);
   $('#themeMenu').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.t === t.id));
 }
-(function buildThemeMenu() {
-  const menu = $('#themeMenu'), btn = $('#themeBtn'), root = document.documentElement;
-  menu.innerHTML = THEMES.map(t => `<button type="button" data-t="${t.id}"><span class="sw" data-p="${t.id}"><i></i><i></i><i></i></span>${t.name}<em>${t.jp}</em></button>`).join('');
+function renderThemeMenu() {
+  const menu = $('#themeMenu'), root = document.documentElement;
+  menu.innerHTML = THEMES.map(t => `<button type="button" data-t="${esc(t.id)}"><span class="sw" data-p="${esc(t.id)}"><i></i><i></i><i></i></span>${esc(t.name)}<em>${esc(t.jp)}</em></button>`).join('');
   for (const t of THEMES) {
-    const prev = root.dataset.theme;
-    if (t.id === 'hearth') delete root.dataset.theme; else root.dataset.theme = t.id;
-    const cs = getComputedStyle(root), cols = ['--a1', '--a2', '--a3'].map(v => cs.getPropertyValue(v).trim());
-    if (prev) root.dataset.theme = prev; else delete root.dataset.theme;
-    menu.querySelectorAll(`[data-p="${t.id}"] i`).forEach((i, k) => { i.style.background = cols[k]; });
+    if (!t.cols) { // no palette from the hub yet: read the accents by briefly applying the CSS theme
+      const prev = root.dataset.theme;
+      if (t.id === 'hearth') delete root.dataset.theme; else root.dataset.theme = t.id;
+      const cs = getComputedStyle(root);
+      t.cols = ['--a1', '--a2', '--a3'].map(v => cs.getPropertyValue(v).trim());
+      if (prev) root.dataset.theme = prev; else delete root.dataset.theme;
+    }
+    menu.querySelectorAll(`[data-p="${CSS.escape(t.id)}"] i`).forEach((i, k) => { i.style.background = t.cols[k]; });
   }
+  const cur = root.dataset.theme || 'hearth';
+  menu.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.t === cur));
+}
+(function buildThemeMenu() {
+  const menu = $('#themeMenu'), btn = $('#themeBtn');
+  renderThemeMenu();
   const close = () => { menu.hidden = true; btn.setAttribute('aria-expanded', 'false'); };
   btn.addEventListener('click', e => { e.stopPropagation(); menu.hidden = !menu.hidden; btn.setAttribute('aria-expanded', String(!menu.hidden)); });
-  menu.addEventListener('click', e => { const b = e.target.closest('button'); if (b) { applyTheme(b.dataset.t); close(); } });
+  menu.addEventListener('click', e => { const b = e.target.closest('button'); if (b) { applyTheme(b.dataset.t, true); close(); } });
   document.addEventListener('click', close);
-  applyTheme(QS.get('theme') || store.get('theme') || 'hearth');
+  applyTheme(LOOK.initial());
+  LOOK.onChange(theme => { LOOK.merge(THEMES); renderThemeMenu(); if (!QS.get('theme')) applyTheme(theme); });
+  LOOK.sync();
+  // these pages have no websocket: look again when the tab comes back and every minute while open
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) LOOK.sync(); });
+  setInterval(() => { if (!document.hidden) LOOK.sync(); }, 60000);
 })();
 function cycleTheme(dir) {
   const cur = document.documentElement.dataset.theme || 'hearth', i = THEMES.findIndex(t => t.id === cur);
   const t = THEMES[(i + dir + THEMES.length) % THEMES.length];
-  applyTheme(t.id); toast(`THEME // ${t.name} ${t.jp}`);
+  applyTheme(t.id, true); toast(`THEME // ${t.name} ${t.jp}`);
 }
 
 /* ───────── modal / toast / api ───────── */

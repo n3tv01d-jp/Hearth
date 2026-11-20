@@ -35,8 +35,11 @@ The **☰ menu** in the top-right corner opens the *command deck*: jump to any p
 
 ```bash
 cp .env.example .env              # then set HEARTH_TOKEN (openssl rand -hex 24)
-docker compose up -d --build      # → http://<host>:8088
+docker compose pull               # the published image (ghcr.io/n3tv01d-jp/hearth)
+docker compose up -d              # → http://<host>:8088
 ```
+
+`docker compose up -d --build` builds from your checkout instead. HEARTH can only update itself from the published image (see *Updating*).
 
 URL options: `?boot=0` skips the intro, `?theme=sakura` picks a theme, and `?node=nas` opens a specific machine.
 
@@ -55,14 +58,36 @@ On each additional machine:
 ```bash
 git clone <this repo> && cd hearth
 cp .env.example .env     # same HEARTH_TOKEN as the hub; HEARTH_HUB=http://<hub-lan-ip>:8088
-docker compose -f docker-compose.agent.yml up -d --build
+docker compose -f docker-compose.agent.yml pull
+docker compose -f docker-compose.agent.yml up -d
 ```
 
 - **LAN only.** The hub accepts agents only from private LAN addresses (`10/8`, `172.16/12`, `192.168/16`, loopback, link-local, IPv6 ULA) that also present the shared token. Connections from other addresses, including Tailscale's `100.64/10` range, are refused and logged. You can override the allowed ranges with `HEARTH_AGENT_CIDRS`.
-- **ARM works.** The base image is multi-arch, and building on a Raspberry Pi produces a native ARM image. The build stage compiles anything that has no prebuilt wheel for 32-bit Pi OS.
+- **ARM works.** The published image is built for x86_64, arm64 (Pi 4/5) and armv7 (32-bit Pi OS). If you build it yourself on a Raspberry Pi you get a native ARM image. The build stage compiles anything that has no prebuilt wheel for 32-bit Pi OS.
 - **Agents only connect out.** Only the hub needs an open port. An agent's healthcheck port listens on `127.0.0.1` only.
 - If an agent stops reporting for 15 s, it's marked **LOST** and the dashboard shows its last known data. When it comes back, KAGARI celebrates.
 - An agent is named after its hostname unless you set `HEARTH_NODE`.
+
+## Updating
+
+Every push to `main` makes GitHub Actions build the image and publish it as `ghcr.io/n3tv01d-jp/hearth:latest` (`.github/workflows/image.yml`). Tags like `v3.4.0` also publish `:3.4.0` and `:3.4`. ARSENAL checks the registry like it does for your other containers, and HEARTH's own row says **UPDATE AVAILABLE** when there's a new build.
+
+Press **⬆ UPDATE HEARTH** on that row, for the hub or for any agent. That machine:
+
+1. Pulls the new image.
+2. Starts a short-lived helper container (`hearth-updater-…`) that has only the Docker socket.
+3. The helper stops HEARTH, creates a copy on the new image with exactly the same settings (env, volumes, devices, network, restart policy, compose labels) and waits up to 150 s for it to report healthy.
+4. If it crashes or stays unhealthy, the helper removes it and starts the old container again.
+
+Whichever HEARTH runs afterwards writes the result to the event log, e.g. `HEARTH updated: 3.3.1 → 3.4.0` or `self-update failed, still on 3.3.1: …`. The hub's own page reconnects by itself. Each machine card in ARSENAL shows the HEARTH version it runs.
+
+- It's on by default in the compose files (`HEARTH_SELF_UPDATE=1`), and `HEARTH_ALLOW_CONTROL=1` implies it. Set `HEARTH_SELF_UPDATE=0` to turn the button off on a machine.
+- It can only ever pull HEARTH's own image and replace HEARTH's own container.
+- `HEARTH_IMAGE` picks the image, for example `ghcr.io/n3tv01d-jp/hearth:3.4` to get only 3.4.x builds.
+- A container built locally with `--build` shows **LOCAL BUILD**. UPDATE HEARTH then replaces it with the published image.
+- By hand it's still `docker compose pull && docker compose up -d`.
+
+The first time the workflow runs, check that the package's visibility is **Public** on GitHub (your profile → *Packages* → *hearth* → *Package settings*). Otherwise machines can't pull it without logging in.
 
 ## Drive health (S.M.A.R.T.)
 
@@ -89,9 +114,46 @@ docker run --rm -v hearth_hearth-data:/data -v "$PWD":/out alpine cp /data/heart
 
 ## Themes & KAGARI
 
-- Nine themes are available from the swatch button in the header: **HEARTH** 炉心, **REDLINE** 赤警報, **MECHA** 機甲, **SAKURA** 桜, **ECLIPSE** 月蝕, **KURENAI** 紅, **ABYSS** 深海, **AURUM** 黄金 and **SPECTER** 幽霊. Your choice is remembered per browser.
+- Nine themes are available from the swatch button in the header: **HEARTH** 炉心, **REDLINE** 赤警報, **MECHA** 機甲, **SAKURA** 桜, **ECLIPSE** 月蝕, **KURENAI** 紅, **ABYSS** 深海, **AURUM** 黄金 and **SPECTER** 幽霊.
+- **One theme for the whole fleet.** The theme you pick is stored on the hub and every open HEARTH page follows it (the dashboard at once, GATE and ARSENAL within a minute), and so do RyuCore, KuroDeck and neosh when they're linked (see *Theme pack*). `?theme=NAME` still overrides it for one page.
 - Turn on **SFX** in the Navigator panel for synthesised alerts: an alarm for critical events, a blip for warnings, and a chime when something recovers.
 - KAGARI reacts to overheating, silent machines, crashed or unhealthy containers, failing drives, full or filling disks, down beacons, and recoveries. She remembers things too: a container on its 3rd restart today, a quiet (or rough) night, a new uptime record, days without a warning. She reads you the daily and weekly reports.
+
+## Theme pack
+
+The hub is the one source of the look for the HEARTH family. `GET /api/theme` serves the fleet theme, every palette and KAGARI's shared greetings and idle lines, plus a `rev` hash that changes whenever any of it does. `?fmt=text` gives the same as `key=value` lines for shells.
+
+To change colours, add palettes or rewrite KAGARI's shared lines, put a `pack.json` next to the database (or point `HEARTH_PACK` at one). It's re-read within 30 s of a change:
+
+```json
+{ "palettes": [
+    { "id": "hearth", "a1": "#40f0ff" },
+    { "id": "neon", "name": "NEON", "jp": "電光", "a1": "#ff00aa", "a2": "#00ffcc", "a3": "#ffee00" } ],
+  "kagari": {
+    "greetings": [ { "until": 12, "kao": "(・ω・)ノ", "en": "Morning! It's {time} on the {where}.", "jp": "おはよう" },
+                   { "until": 24, "kao": "(´｡• ᵕ •｡`)", "en": "Evening, commander.", "jp": "こんばんは" } ],
+    "idle": [ { "kao": "(｀・ω・´)ゞ", "en": "Standing watch!", "jp": "監視中" } ] } }
+```
+
+A palette with a built-in id changes only the colours you give. A new id (`a-z0-9_`, up to 32 of them) needs `a1`–`a3`; its backgrounds and text colours are derived from `a1` unless you set `surface bg bg2 panel text dim faint`. Greetings are picked by hour (`until` is exclusive); `{time}` and `{where}` (network / shell / deck) are filled in by each client. Anything invalid is skipped with a warning in the log.
+
+## RyuCore 竜核
+
+Link [RyuCore](../RyuCore) from the start page and HEARTH gets **竜 ASK** buttons on warnings and critical events in the log, on the daily/weekly report and on each ARSENAL machine card. They open RyuCore in a new tab with a ready-made agent prompt about that event, report or machine. Nothing is sent until you press TRANSMIT there.
+
+Going the other way, start RyuCore with `RYU_HEARTH_URL` (shown in the link dialog) and it adds HEARTH as an MCP server, so its agents can read the fleet, metrics, events, reports, insights, maintenance state and journal.
+
+### MCP server
+
+`POST /mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server (Streamable HTTP, stateless). Any MCP client can use it.
+
+| `HEARTH_MCP` | Tools |
+|---|---|
+| `read` (default) | `fleet_status` `node_snapshot` `metric_history` `events` `report` `insights` `maintenance_overview` `journal` (+ `container_logs` when container control is on) |
+| `control` | Also `open_maintenance` and `add_journal_note`, plus `container_action`, `stack_action` and `update_container`, which are marked destructive so a client like RyuCore asks you before running them. Needs both `HEARTH_MCP_TOKEN` and `HEARTH_ALLOW_CONTROL=1`, otherwise it stays `read` |
+| `off` | `/mcp` returns 404 |
+
+With `HEARTH_MCP_TOKEN` set, clients must send `Authorization: Bearer <token>`. Requests must be `Content-Type: application/json`, so a web page can't post to it cross-site. Every write made through MCP is written to the event log.
 
 ## Push alerts
 
@@ -225,6 +287,8 @@ Turn it off with `HEARTH_METRICS=0`.
 | `HEARTH_INTERVAL` | `1` | both | Seconds between samples |
 | `HEARTH_IFACE_EXCLUDE` | `lo,veth` | both | Interface name prefixes to hide |
 | `HEARTH_ALLOW_CONTROL` | `0` | both | `1` enables container start / stop / restart / logs on that machine |
+| `HEARTH_SELF_UPDATE` | `1` in compose | both | ARSENAL's UPDATE HEARTH for that machine (see *Updating*) |
+| `HEARTH_IMAGE` | `ghcr.io/n3tv01d-jp/hearth:latest` | both | The image compose runs, and that HEARTH updates itself from |
 | `HEARTH_NOTIFY` | — | hub | Push alert URLs (see *Push alerts*) |
 | `HEARTH_NOTIFY_LEVEL` | `warn` | hub | Lowest level to push: `info`, `warn` or `crit` |
 | `HEARTH_NOTIFY_RECOVERY` | `1` | hub | Also push recoveries |
@@ -241,6 +305,9 @@ Turn it off with `HEARTH_METRICS=0`.
 | `HEARTH_UPDATE_INTERVAL` | `21600` | both | Seconds between image update checks (minimum 600) |
 | `HEARTH_BACKUPS` | — | both | Backups on that machine: `name=/path[@max-age], …` |
 | `HEARTH_HEARTBEATS` | — | hub | Heartbeat checks: `name=max-age, …` |
+| `HEARTH_MCP` | `read` | hub | MCP server: `off`, `read` or `control` (see *MCP server*) |
+| `HEARTH_MCP_TOKEN` | — | hub | Bearer token for `/mcp`. Required for `control` |
+| `HEARTH_PACK` | `pack.json` next to the DB | hub | Theme pack file (see *Theme pack*) |
 
 ## How it sees the host
 
@@ -256,10 +323,13 @@ Turn it off with `HEARTH_METRICS=0`.
 - The **dashboard itself has no login**, so keep it on your LAN or put it behind a reverse proxy with auth. It works under a sub-path. This matters more if you turn on container control, because then anyone who can open HEARTH or ARSENAL can stop, update or prune containers.
 - GATE's edits, maintenance windows and journal notes don't need control, but they are visible to and editable by everyone who can open the pages.
 - ARSENAL makes outbound HTTPS requests to the registries of the images you run (one manifest lookup per image per check). GATE's hub fetches favicons and TLS certificates from the services it links to.
+- With self-update on, anyone who can open HEARTH can make a machine pull the newest published HEARTH image and restart on it. They can't choose a different image, and a release that doesn't start is rolled back. The helper container gets the Docker socket, like HEARTH itself.
+- `/mcp` is read-only by default. Without `HEARTH_MCP_TOKEN` anyone on the LAN who can open HEARTH can also read it over MCP (the same data as the dashboard). Set a token if that's a concern, and always for `control`.
+- Anyone who can open HEARTH can change the fleet theme, which changes it on linked RyuCore, KuroDeck and neosh too. Only colours and KAGARI's lines travel this way.
 - Never commit `.env`: it holds the agent token. The `.gitignore` already excludes it.
 
 ## Endpoints (hub)
 
-`/` system select · `/hearth.html` · `/gate.html` · `/arsenal.html` · `/ws` browser stream · `/agent` agent stream · `/api/fleet` · `/api/snapshot?node=` · `/api/history?node=&range=1h|6h|24h|7d|30d` · `/api/summary?node=&hours=24` · `/api/events?node=&range=` · `/api/report?node=&days=1-30` · `/api/insights?node=` · `/api/beacons` · `/api/info` · `/api/gate` · `/api/gate/icon?id=` · `/api/arsenal` · `/api/ryucore` · `/api/journal?node=` · `/api/ping/<name>[/fail]` · `/metrics` · `/healthz`
+`/` system select · `/hearth.html` · `/gate.html` · `/arsenal.html` · `/ws` browser stream · `/agent` agent stream · `/api/fleet` · `/api/snapshot?node=` · `/api/history?node=&range=1h|6h|24h|7d|30d` · `/api/summary?node=&hours=24` · `/api/events?node=&range=` · `/api/report?node=&days=1-30` · `/api/insights?node=` · `/api/beacons` · `/api/info` · `/api/gate` · `/api/gate/icon?id=` · `/api/arsenal` · `/api/ryucore` · `/api/theme[?fmt=text]` · `/api/status` (fleet, last hour's warnings and recoveries, maintenance, theme ref) · `/mcp` · `/api/journal?node=` · `/api/ping/<name>[/fail]` · `/metrics` · `/healthz`
 
-POST (need the `X-Hearth: 1` header): `/api/container` `{node, id, action: start|stop|restart|logs}` · `/api/notify/test` · `/api/gate/item` `{id?, name, url, group, icon, pinned, hidden}` · `/api/gate/item/delete` `{id}` · `/api/gate/wake` `{id}` · `/api/arsenal/action` `{node, action: check|update|prune|stack, id?, arg?}` · `/api/maint` `{node?, minutes, reason}` · `/api/maint/stop` `{id}` · `/api/journal` `{text, node?}` · `/api/journal/delete` `{id}` · `/api/ryucore` `{url, newtab}` (empty url unlinks)
+POST (need the `X-Hearth: 1` header): `/api/container` `{node, id, action: start|stop|restart|logs}` · `/api/notify/test` · `/api/gate/item` `{id?, name, url, group, icon, pinned, hidden}` · `/api/gate/item/delete` `{id}` · `/api/gate/wake` `{id}` · `/api/arsenal/action` `{node, action: check|update|prune|stack|selfupdate, id?, arg?}` · `/api/maint` `{node?, minutes, reason}` · `/api/maint/stop` `{id}` · `/api/journal` `{text, node?}` · `/api/journal/delete` `{id}` · `/api/ryucore` `{url, newtab}` (empty url unlinks) · `/api/theme` `{theme}`

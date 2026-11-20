@@ -1,11 +1,13 @@
 # HEARTH agent — run on every OTHER machine you want on the dashboard.
 #   1. clone this repo on the machine (works on x86_64 and ARM, e.g. Raspberry Pi)
 #   2. create .env with HEARTH_TOKEN (same value as the hub) and HEARTH_HUB
-#   3. docker compose -f docker-compose.agent.yml up -d --build
+#   3. docker compose -f docker-compose.agent.yml pull && docker compose -f docker-compose.agent.yml up -d
+#      (or `up -d --build` to build from this checkout)
+# Updates afterwards: ARSENAL on the hub → UPDATE HEARTH on this machine's row.
 services:
   hearth-agent:
     build: .
-    image: hearth:latest
+    image: "${HEARTH_IMAGE:-ghcr.io/n3tv01d-jp/hearth:latest}"
     container_name: hearth-agent
     restart: unless-stopped
     network_mode: host
@@ -20,6 +22,7 @@ services:
       HEARTH_INTERVAL: "1"
       HEARTH_IFACE_EXCLUDE: "lo,veth"
       HEARTH_ALLOW_CONTROL: "${HEARTH_ALLOW_CONTROL:-0}"  # 1 = let the hub control / update containers on THIS machine
+      HEARTH_SELF_UPDATE: "${HEARTH_SELF_UPDATE:-1}"      # 1 = the hub's ARSENAL can update this agent from the published image
       HEARTH_BACKUPS: "${HEARTH_BACKUPS:-}"          # backups on THIS machine: photos=/mnt/backup/restic@26h
       TZ: "${TZ:-UTC}"
 

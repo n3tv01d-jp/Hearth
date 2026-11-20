@@ -5,6 +5,8 @@ Machine side (runs in the hub and in every agent, reported in each snapshot unde
     Docker Hub / GHCR / lscr.io / Quay / any v2 registry), every HEARTH_UPDATE_INTERVAL seconds
   * update = pull + recreate the container with its exact config (watchtower-style), with rollback
   * Docker disk usage and prune (dangling / unused images, stopped containers, build cache)
+  * self-update: HEARTH pulls its own image and a short-lived helper container swaps it in
+    (HEARTH can't recreate the container it runs in), waiting for it to be healthy, with rollback
   * compose stacks: start / stop / restart every container of a project
   * host: reboot required (Debian flag file, or a newer kernel installed than the one running),
     pending updates where the OS exposes a count, and when packages last changed
@@ -30,7 +32,7 @@ import urllib.request
 from collections import OrderedDict
 
 from . import __version__
-from .collect import ALLOW_CONTROL, DOCKER_HOST, EVENTS, HOSTFS, SELF_CONTAINER, docker, node_id
+from .collect import ALLOW_CONTROL, DOCKER_HOST, EVENTS, HOSTFS, SELF_CONTAINER, SELF_UPDATE, docker, node_id
 
 log = logging.getLogger("hearth")
 
@@ -43,6 +45,8 @@ MANIFEST_TYPES = ", ".join((
 PRUNES = {"images": "dangling images", "images-all": "all unused images", "containers": "stopped containers",
           "build": "build cache"}
 STACK_ACTS = ("start", "stop", "restart")
+UPDATER_LABEL = "io.hearth.updater"   # on self-update helper containers; the value is HEARTH's container name
+SETTLE_SECONDS = 150                  # how long a self-update waits for the new HEARTH to be healthy
 
 
 def _hostpath(p: str) -> str:
@@ -286,6 +290,74 @@ def build_create_body(c: dict, old_img: dict, ref: str) -> tuple[dict, list[tupl
     return body, extra
 
 
+def pull(api, ref: str) -> None:
+    repo, _, tag = ref.rpartition(":") if ":" in ref.rsplit("/", 1)[-1] else (ref, "", "latest")
+    for line in api.pull(repo, tag=tag, stream=True, decode=True):
+        if isinstance(line, dict) and line.get("error"):
+            raise RuntimeError(f"pull failed: {line['error']}")
+
+
+def settle(api, cid: str, timeout: float) -> None:
+    """Waits until a just-started container is healthy (or, without a healthcheck, still up after 20 s)."""
+    t0 = time.monotonic()
+    while True:
+        info = api.inspect_container(cid)
+        st = info.get("State") or {}
+        if not st.get("Running") or st.get("Restarting") or (info.get("RestartCount") or 0):
+            code = st.get("ExitCode")
+            raise RuntimeError("the new container crashed on start" + (f" (exit code {code})" if code else ""))
+        health = (st.get("Health") or {}).get("Status")
+        if health == "healthy" or (health is None and time.monotonic() - t0 >= 20):
+            return
+        if health == "unhealthy":
+            raise RuntimeError("the new container is unhealthy")
+        if time.monotonic() - t0 > timeout:
+            raise RuntimeError(f"the new container wasn't healthy after {int(timeout)} s")
+        time.sleep(2)
+
+
+def recreate(api, c: dict, ref: str, verify: float = 0) -> str:
+    """Replaces container `c` (an inspect result) with a fresh copy on image `ref`.
+
+    On any failure, including (with `verify`) the new container not becoming healthy, the old
+    container is put back exactly as it was and the error is raised."""
+    cid, name = c["Id"], c["Name"].lstrip("/")
+    old_img = api.inspect_image(c["Image"])
+    body, extra = build_create_body(c, old_img, ref)
+    was_running = bool((c.get("State") or {}).get("Running"))
+    tmp = f"{name}-hearth-old-{secrets.token_hex(2)}"
+    if was_running:
+        api.stop(cid, timeout=int((c.get("Config") or {}).get("StopTimeout") or 10))
+    api.rename(cid, tmp)
+    new_id = None
+    try:
+        res = api._post_json(api._url("/containers/create"), data=body, params={"name": name})  # noqa: SLF001
+        new_id = api._result(res, True)["Id"]  # noqa: SLF001
+        for net, ep in extra:
+            links = [tuple(x.lstrip("/").split(":", 1)) if ":" in x else (x, None) for x in ep.get("Links") or []]
+            api.connect_container_to_network(new_id, net, aliases=ep.get("Aliases"),
+                                             links=links or None,
+                                             ipv4_address=(ep.get("IPAMConfig") or {}).get("IPv4Address"),
+                                             ipv6_address=(ep.get("IPAMConfig") or {}).get("IPv6Address"))
+        if was_running:
+            api.start(new_id)
+            if verify:
+                settle(api, new_id, verify)
+    except Exception:
+        # roll back: put the old container back exactly as it was
+        if new_id:
+            try:
+                api.remove_container(new_id, force=True)
+            except Exception:  # noqa: BLE001
+                pass
+        api.rename(cid, name)
+        if was_running:
+            api.start(cid)
+        raise
+    api.remove_container(cid, v=False)
+    return new_id
+
+
 # ───────────────────────────── the machine-side service ─────────────────────────────
 class Arsenal:
     def __init__(self) -> None:
@@ -307,6 +379,7 @@ class Arsenal:
         self._df_at = self._host_at = self._bk_at = self._up_at = 0.0
         self._df_now = False
         self._err: str | None = None
+        self._self_name: str | None = None
 
     def start(self) -> None:
         if docker is None:
@@ -327,6 +400,8 @@ class Arsenal:
                 if self.backup_cfg and now - self._bk_at >= BACKUP_EVERY:
                     self._bk_at = now
                     self._check_backups()
+                if SELF_CONTAINER:
+                    self._reap_updaters()
                 if self._df_now or now - self._df_at >= DF_EVERY:
                     self._df_at, self._df_now = now, False
                     self._disk_usage()
@@ -500,6 +575,15 @@ class Arsenal:
             self._df_now = True
             self.wake.set()
             return {"ok": True}
+        if action == "selfupdate":
+            if not SELF_UPDATE:
+                raise PermissionError("self-update is off on this machine (set HEARTH_SELF_UPDATE=1)")
+            u = next((x for x in self.updates.values() if x["self"]), None)
+            if not u:
+                raise LookupError("HEARTH can't find its own container yet (is it running in Docker?)")
+            if u["state"] in ("untagged", "pinned"):
+                raise ValueError(f"HEARTH runs from a {u['state']} image, there's nothing to pull")
+            return self._job("update", u["name"], lambda: self._self_update(u))
         if not ALLOW_CONTROL:
             raise PermissionError("container control is disabled on this machine (set HEARTH_ALLOW_CONTROL=1)")
         if action == "update":
@@ -507,7 +591,7 @@ class Arsenal:
             if not u:
                 raise LookupError("unknown container")
             if u["self"]:
-                raise PermissionError("HEARTH can't update itself: run `git pull && docker compose up -d --build`")
+                raise PermissionError("use UPDATE HEARTH for HEARTH's own container")
             if u["state"] in ("local", "untagged", "pinned", "missing"):
                 raise ValueError(f"{u['name']} uses a {u['state']} image, there's nothing to pull")
             return self._job("update", u["name"], lambda: self._update(u["id"], u["image"]))
@@ -527,48 +611,71 @@ class Arsenal:
         try:
             c = api.inspect_container(cid)
             name = c["Name"].lstrip("/")
-            old_img = api.inspect_image(c["Image"])
-            reg_repo, _, tag = ref.rpartition(":") if ":" in ref.rsplit("/", 1)[-1] else (ref, "", "latest")
-            for line in api.pull(reg_repo, tag=tag, stream=True, decode=True):
-                if isinstance(line, dict) and line.get("error"):
-                    raise RuntimeError(f"pull failed: {line['error']}")
+            pull(api, ref)
             new_img = api.inspect_image(ref)
             if new_img["Id"] == c["Image"]:
                 self.force_refs.add(ref)
                 return f"{name} is already on the newest image"
-            body, extra = build_create_body(c, old_img, ref)
-            was_running = bool((c.get("State") or {}).get("Running"))
-            tmp = f"{name}-hearth-old-{secrets.token_hex(2)}"
-            if was_running:
-                api.stop(cid, timeout=int((c.get("Config") or {}).get("StopTimeout") or 10))
-            api.rename(cid, tmp)
-            new_id = None
-            try:
-                res = api._post_json(api._url("/containers/create"), data=body, params={"name": name})  # noqa: SLF001
-                new_id = api._result(res, True)["Id"]  # noqa: SLF001
-                for net, ep in extra:
-                    links = [tuple(x.lstrip("/").split(":", 1)) if ":" in x else (x, None) for x in ep.get("Links") or []]
-                    api.connect_container_to_network(new_id, net, aliases=ep.get("Aliases"),
-                                                     links=links or None,
-                                                     ipv4_address=(ep.get("IPAMConfig") or {}).get("IPv4Address"),
-                                                     ipv6_address=(ep.get("IPAMConfig") or {}).get("IPv6Address"))
-                if was_running:
-                    api.start(new_id)
-            except Exception:
-                # roll back: put the old container back exactly as it was
-                if new_id:
-                    try:
-                        api.remove_container(new_id, force=True)
-                    except Exception:  # noqa: BLE001
-                        pass
-                api.rename(cid, name)
-                if was_running:
-                    api.start(cid)
-                raise
-            api.remove_container(cid, v=False)
+            recreate(api, c, ref)
             self.force_refs.add(ref)
             EVENTS.add("ok", "arsenal", f"{name} ⬆ updated to the newest {ref}")
             return f"{name} recreated on the new image"
+        finally:
+            api.close()
+
+    # ── self-update ──
+    def _self_update(self, u: dict) -> str:
+        api = self._api(timeout=600)
+        try:
+            c = api.inspect_container(u["id"])
+            name, ref = c["Name"].lstrip("/"), u["image"]
+            try:
+                pull(api, ref)
+            except Exception as e:  # noqa: BLE001 (re-raised with a hint)
+                raise RuntimeError(f"{e} (HEARTH must run from a published image such as "
+                                   "ghcr.io/n3tv01d-jp/hearth:latest to update itself)") from None
+            if api.inspect_image(ref)["Id"] == c["Image"]:
+                self.force_refs.add(ref)
+                return "HEARTH is already on the newest image"
+            sock = DOCKER_HOST.removeprefix("unix://")
+            src = next((m.get("Source") for m in c.get("Mounts") or [] if m.get("Destination") == sock), None)
+            if not DOCKER_HOST.startswith("unix://") or not src:
+                raise RuntimeError(f"can't find the Docker socket mount ({sock}) on {name}")
+            hc = c.get("HostConfig") or {}
+            # The helper runs the code of the image HEARTH runs now, which is the code that started it.
+            body = {
+                "Image": c["Image"], "WorkingDir": "/app", "Entrypoint": ["python"],
+                "Cmd": ["-m", "hearth.selfupdate", c["Id"], ref, __version__],
+                "Env": [f"DOCKER_HOST=unix://{sock}", "PYTHONUNBUFFERED=1"],
+                "Labels": {UPDATER_LABEL: name}, "Healthcheck": {"Test": ["NONE"]},
+                "HostConfig": {"Binds": [f"{src}:{sock}"], "NetworkMode": "none",
+                               "SecurityOpt": hc.get("SecurityOpt")},
+            }
+            res = api._post_json(api._url("/containers/create"), data=body,  # noqa: SLF001
+                                 params={"name": f"{name}-updater-{secrets.token_hex(2)}"})
+            api.start(api._result(res, True)["Id"])  # noqa: SLF001
+        finally:
+            api.close()
+        EVENTS.add("info", "arsenal", f"{name} ⬆ updating itself to the newest {ref}: back in about a minute")
+        return "restarting on the new image…"
+
+    def _reap_updaters(self) -> None:
+        """Reports and removes finished self-update helpers (run by whichever HEARTH is up afterwards)."""
+        api = self._api(timeout=30)
+        try:
+            if self._self_name is None:
+                self._self_name = api.inspect_container(SELF_CONTAINER)["Name"].lstrip("/")
+            for r in api.containers(all=True, filters={"label": f"{UPDATER_LABEL}={self._self_name}",
+                                                       "status": "exited"}):
+                raw = api.logs(r["Id"], tail=40)
+                text = raw.decode("utf-8", "replace") if isinstance(raw, bytes) else str(raw)
+                last = next((x for x in reversed(text.splitlines()) if x.startswith(("OK ", "FAIL "))), None)
+                if last and last.startswith("OK "):
+                    EVENTS.add("ok", "arsenal", f"{self._self_name} ⬆ HEARTH updated: {last[3:]} → {__version__}")
+                else:
+                    why = last[5:] if last else (text.strip().splitlines() or ["no output"])[-1]
+                    EVENTS.add("warn", "arsenal", f"{self._self_name} self-update failed, still on {__version__}: {why[:200]}")
+                api.remove_container(r["Id"], force=True)
         finally:
             api.close()
 
@@ -620,7 +727,8 @@ class Arsenal:
             ups = list(self.updates.values())
             jobs = list(self.jobs.values())
         return {"updates": ups, "checked": self.checked, "checking": self.checking, "every": UPDATE_EVERY,
-                "df": self.df, "host": self.host, "backups": self.backups, "jobs": jobs, "control": ALLOW_CONTROL}
+                "df": self.df, "host": self.host, "backups": self.backups, "jobs": jobs, "control": ALLOW_CONTROL,
+                "self_update": SELF_UPDATE, "version": __version__}
 
 
 ARSENAL: Arsenal | None = None

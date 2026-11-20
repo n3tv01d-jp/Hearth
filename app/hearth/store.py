@@ -243,6 +243,16 @@ class Store:
                 for n in self.notes(node, start, end)]
         return sorted(out, key=lambda e: e["t"])
 
+    def search_events(self, node: str | None, since: int, limit: int = 2000) -> list[dict]:
+        """Every event since `since` (newest first), for one node or the whole fleet."""
+        sql, args = "SELECT id, ts, node, lvl, src, msg, rec FROM events WHERE ts >= ?", [since]
+        if node:
+            sql += " AND node = ?"
+            args.append(node)
+        rows = self.q(sql + " ORDER BY id DESC LIMIT ?", (*args, limit))
+        return [{"id": r[0], "t": r[1] * 1000, "node": r[2], "lvl": r[3], "src": r[4], "msg": r[5], "rec": bool(r[6])}
+                for r in rows]
+
     def beacon_uptime(self, name: str, since: int) -> float | None:
         v = self.q("SELECT AVG(up) FROM beacons WHERE name = ? AND ts >= ?", (name, since))[0][0]
         return round(v, 5) if v is not None else None

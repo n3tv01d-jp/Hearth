@@ -37,6 +37,8 @@ DOCKER_HOST = os.getenv("DOCKER_HOST", "unix:///var/run/docker.sock")
 SMART_INTERVAL = float(os.getenv("HEARTH_SMART_INTERVAL", "600"))
 # Opt-in per machine: lets the hub start / stop / restart containers and read their logs here.
 ALLOW_CONTROL = os.getenv("HEARTH_ALLOW_CONTROL", "").strip().lower() in ("1", "true", "yes", "on")
+# HEARTH may pull its own image and replace its own container (and nothing else). Implied by control.
+SELF_UPDATE = ALLOW_CONTROL or os.getenv("HEARTH_SELF_UPDATE", "").strip().lower() in ("1", "true", "yes", "on")
 BOOT_ID = secrets.token_hex(4)
 
 

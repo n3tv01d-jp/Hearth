@@ -139,10 +139,13 @@ const THEMES = [
   { id: 'aurum', name: 'AURUM', jp: '黄金' },
   { id: 'specter', name: 'SPECTER', jp: '幽霊' },
 ];
-function applyTheme(id) {
+LOOK.merge(THEMES);
+/** push: also make it the fleet theme on the hub (a user's pick, not a sync). */
+function applyTheme(id, push = false) {
   const t = THEMES.find(x => x.id === id) || THEMES[0];
-  if (t.id === 'hearth') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t.id;
+  LOOK.paint(t.id);
   store.set('theme', t.id);
+  if (push) LOOK.push(t.id);
   setText($('#themeName'), t.name);
   $('#themeMenu').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.t === t.id));
   refreshPalette(); Chart.all.forEach(c => c.draw());
@@ -152,23 +155,33 @@ function closeThemeMenu() {
   const menu = $('#themeMenu'); if (menu.hidden) return false;
   menu.hidden = true; $('#themeBtn').setAttribute('aria-expanded', 'false'); return true;
 }
+function renderThemeMenu() {
+  const menu = $('#themeMenu');
+  menu.innerHTML = THEMES.map(t => `<button type="button" data-t="${esc(t.id)}">
+    <span class="sw" data-p="${esc(t.id)}"><i></i><i></i><i></i></span>${esc(t.name)}<em>${esc(t.jp)}</em></button>`).join('');
+  for (const t of THEMES) {
+    if (!t.cols) { // no palette from the hub yet: read the accents by briefly applying the CSS theme to <html>
+      const root = document.documentElement, prev = root.dataset.theme;
+      if (t.id === 'hearth') delete root.dataset.theme; else root.dataset.theme = t.id;
+      const cs = getComputedStyle(root);
+      t.cols = ['--a1', '--a2', '--a3'].map(v => cs.getPropertyValue(v).trim());
+      if (prev) root.dataset.theme = prev; else delete root.dataset.theme;
+    }
+    menu.querySelectorAll(`[data-p="${CSS.escape(t.id)}"] i`).forEach((i, k) => { i.style.background = t.cols[k]; });
+  }
+  const cur = document.documentElement.dataset.theme || 'hearth';
+  menu.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.t === cur));
+}
 (function buildThemeMenu() {
   const menu = $('#themeMenu'), btn = $('#themeBtn');
-  menu.innerHTML = THEMES.map(t => `<button type="button" data-t="${t.id}">
-    <span class="sw" data-p="${t.id}"><i></i><i></i><i></i></span>${t.name}<em>${t.jp}</em></button>`).join('');
-  // swatches: read each theme's accents by briefly applying it to <html>
-  for (const t of THEMES) {
-    const root = document.documentElement, prev = root.dataset.theme;
-    if (t.id === 'hearth') delete root.dataset.theme; else root.dataset.theme = t.id;
-    const cs = getComputedStyle(root), cols = ['--a1', '--a2', '--a3'].map(v => cs.getPropertyValue(v).trim());
-    if (prev) root.dataset.theme = prev; else delete root.dataset.theme;
-    t.cols = cols;
-    menu.querySelectorAll(`[data-p="${t.id}"] i`).forEach((i, k) => { i.style.background = cols[k]; });
-  }
+  renderThemeMenu();
   btn.addEventListener('click', e => { e.stopPropagation(); menu.hidden = !menu.hidden; btn.setAttribute('aria-expanded', String(!menu.hidden)); });
-  menu.addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; applyTheme(b.dataset.t); menu.hidden = true; btn.setAttribute('aria-expanded', 'false'); SFX.play('blip'); });
+  menu.addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; applyTheme(b.dataset.t, true); menu.hidden = true; btn.setAttribute('aria-expanded', 'false'); SFX.play('blip'); });
   document.addEventListener('click', () => { menu.hidden = true; btn.setAttribute('aria-expanded', 'false'); });
-  applyTheme(QS.get('theme') || store.get('theme') || 'hearth');
+  applyTheme(LOOK.initial());
+  // the hub's fleet theme and palettes: picked up now and whenever the websocket says they changed
+  LOOK.onChange(theme => { LOOK.merge(THEMES); renderThemeMenu(); if (!QS.get('theme')) applyTheme(theme); });
+  LOOK.sync();
 })();
 
 /* ───────── sound effects (synthesised, off by default) ───────── */
@@ -682,7 +695,7 @@ function ingestEvents(events, reset) {
   setText($('#logMeta'), `${all.length} entries`);
   keyed($('#log'), all, e => e.id,
     e => {
-      const li = html(`<li><time></time><span class="src"></span><span class="msg"><span class="nd"></span><span class="tx"></span></span></li>`);
+      const li = html(`<li><time></time><span class="src"></span><span class="msg"><span class="nd"></span><span class="tx"></span></span>${e.lvl === 'warn' || e.lvl === 'crit' ? '<button type="button" class="ask" data-ask title="Ask RyuCore about this event">竜</button>' : ''}</li>`);
       li.className = e.lvl; li.querySelector('time').textContent = fmt.time(e.t);
       li.querySelector('.src').textContent = e.src; li.querySelector('.nd').textContent = e.node || '';
       li.querySelector('.tx').textContent = e.msg; li.title = 'Click to jump to the source'; return li;
@@ -699,6 +712,7 @@ function ingestEvents(events, reset) {
 /* ───────── navigator KAGARI ───────── */
 const nav = { key: null, rot: 0, rotAt: 0, typer: null };
 function greeting() {
+  const shared = LOOK.greeting('network'); if (shared) return shared;
   const h = new Date().getHours();
   return h < 5 ? ['(￣o￣) zzz', `Still up at ${fmt.hm(Date.now())}, commander? I'll keep the hearth warm.`, '夜更かしですね…']
     : h < 11 ? ['(｡•̀ᴗ-)✧', 'Good morning, commander! Systems warmed up and ready.', 'おはようございます！']
@@ -773,6 +787,7 @@ function navState(d) {
     { kao: '(￣▽￣)ノ', en: `Uptime ${fmt.dur(d.host.uptime)}. The hearth burns steady.`, jp: '炉心、安定稼働中。' },
     { kao: '( ´ ▽ ` )', en: d.hot ? `Hottest CPU sensor is a comfy ${d.hot.c.toFixed(0)}°C.` : `I can't see any temperature sensors here, but I'm sure it's cozy!`, jp: '温度は快適です。' },
     { kao: '(・ω・)', en: `CPU ${d.cpu.total.toFixed(0)}% · RAM ${d.mem.pct.toFixed(0)}%. Plenty of headroom left.`, jp: '余裕あり、問題なし。' },
+    ...LOOK.idle(),
   ].filter(Boolean);
   if (Date.now() - nav.rotAt > 14000) { nav.rot = (nav.rot + 1) % idle.length; nav.rotAt = Date.now(); }
   const pick = idle[nav.rot % idle.length];
@@ -977,8 +992,33 @@ function jumpToEvent(e) {
 }
 $('#log').addEventListener('click', e => {
   const li = e.target.closest('li[data-key]'); if (!li) return;
-  const ev = S.log.get(Number(li.dataset.key)); if (ev) jumpToEvent(ev);
+  const ev = S.log.get(Number(li.dataset.key)); if (!ev) return;
+  if (e.target.closest('[data-ask]')) { askEvent(ev); return; }
+  jumpToEvent(ev);
 });
+
+/* ───────── RyuCore hand-off 竜核 ───────── */
+LOOK.ryucore().then(u => document.body.classList.toggle('has-ryu', !!u));
+async function ask(prompt) {
+  if (!await LOOK.ask(prompt)) toast('Link RyuCore first: start page → RYUCORE card', 'warn');
+}
+function askEvent(ev) {
+  const node = ev.node || S.node;
+  ask(`HEARTH raised this event on node "${node}" at ${LOOK.when(ev.t)}:\n\n[${ev.lvl.toUpperCase()}] ${ev.src}: ${ev.msg}\n\n`
+    + 'Investigate it with the hearth tools: the events around that time, node_snapshot, metric_history, insights and, '
+    + 'if a container is involved, its logs. Tell me what happened, the most likely cause and what I should do about it. '
+    + 'Don\'t change anything without asking me first.');
+}
+function askReport(r) {
+  const s = r.summary, name = nodeName(r.node);
+  ask(`Here is HEARTH's ${rangeName(r.days).toLowerCase()} report for node "${r.node}" (${name}): CPU avg ${s.cpu_avg ?? '?'}%, `
+    + `peak ${s.cpu_peak?.toFixed(0) ?? '?'}%, hottest ${s.hot_peak != null ? s.hot_peak.toFixed(0) + '°C' : 'n/a'}, `
+    + `traffic down ${fmt.bytes(s.rx_bytes)} / up ${fmt.bytes(s.tx_bytes)}, incidents ${r.incidents.warn || 0} warn + ${r.incidents.crit || 0} crit, `
+    + `restarts: ${r.restarts.map(x => `${x.name} ×${x.n}`).join(', ') || 'none'}.\n\n`
+    + `Use the hearth tools (report with node "${r.node}" and days ${r.days}, events, metric_history, insights) to look closer. `
+    + 'Write me a short, plain-language summary: what was normal, what stood out, likely causes, and anything I should do this week. '
+    + 'If you notice a recurring pattern worth remembering (e.g. a nightly job that spikes CPU), say so.');
+}
 
 /* ───────── fleet helpers ───────── */
 function cycleNode(dir) {
@@ -989,7 +1029,7 @@ function cycleNode(dir) {
 function cycleTheme(dir) {
   const cur = document.documentElement.dataset.theme || 'hearth', i = THEMES.findIndex(t => t.id === cur);
   const t = THEMES[(i + dir + THEMES.length) % THEMES.length];
-  applyTheme(t.id); toast(`THEME // ${t.name} ${t.jp}`);
+  applyTheme(t.id, true); toast(`THEME // ${t.name} ${t.jp}`);
 }
 const RANGES = ['1h', '6h', '24h', '7d', '30d'];
 function cycleRange() {
@@ -1034,7 +1074,15 @@ async function showReport(days = 7) {
   const node = S.node;
   const body = modal.open(`REPORT // ${nodeName(node)}`, `<div class="seg-tabs rep-tabs">${[1, 7, 30].map(d => `<button type="button" data-d="${d}" class="${d === days ? 'on' : ''}">${d === 1 ? '24H' : d + 'D'}</button>`).join('')}</div><div class="rep">loading…</div>`, 'wide');
   body.querySelector('.rep-tabs').addEventListener('click', e => { const b = e.target.closest('[data-d]'); if (b) showReport(+b.dataset.d); });
-  try { body.querySelector('.rep').innerHTML = reportHtml(await getJSON('api/report', { node, days })); }
+  try {
+    const r = await getJSON('api/report', { node, days });
+    body.querySelector('.rep').innerHTML = reportHtml(r);
+    if (r.summary.minutes && await LOOK.ryucore()) {
+      const b = html('<button type="button" class="ask-btn">竜 ASK RYUCORE <em>分析</em></button>');
+      b.addEventListener('click', () => askReport(r));
+      body.querySelector('.rep-tabs').append(b);
+    }
+  }
   catch (e) { body.querySelector('.rep').innerHTML = `<p class="empty">Report unavailable: ${esc(e.message)}. Is the archive (/data) writable?</p>`; }
 }
 function exportCsv() {
@@ -1174,7 +1222,7 @@ $('#sbBody').addEventListener('click', async e => {
   if (d.go) { openSidebar(false); jumpTo(d.go); }
   else if (d.node) selectNode(d.node);
   else if (d.report) { openSidebar(false); showReport(+d.report); }
-  else if (d.themePick) { applyTheme(d.themePick); SFX.play('blip'); }
+  else if (d.themePick) { applyTheme(d.themePick, true); SFX.play('blip'); }
   else if (d.pref === 'sfx') setSfx(!SFX.on);
   else if (d.pref === 'stopped') setShowStopped(!S.showStopped);
   else if (d.pref === 'boot') {
@@ -1211,6 +1259,7 @@ function connect() {
   ws.onmessage = ev => {
     let m; try { m = JSON.parse(ev.data); } catch { return; }
     if (m.maint) renderMaint(m.maint);
+    if (m.theme) LOOK.check(m.theme);
     if (m.type === 'hello') {
       const changed = m.node !== S.node || !S.archive;
       S.node = m.node; S.fleet = m.fleet || [];

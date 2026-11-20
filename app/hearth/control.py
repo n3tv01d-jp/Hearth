@@ -10,7 +10,7 @@ import re
 from .collect import ALLOW_CONTROL, DOCKER_HOST, SELF_CONTAINER, docker
 
 ACTIONS = ("start", "stop", "restart", "logs")
-ARSENAL_ACTIONS = ("check", "update", "prune", "stack")
+ARSENAL_ACTIONS = ("check", "update", "prune", "stack", "selfupdate")
 CID = re.compile(r"^[0-9a-f]{12,64}$")
 ANSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 MAX_LOG = 256 * 1024

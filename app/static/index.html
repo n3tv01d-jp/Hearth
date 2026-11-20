@@ -244,6 +244,7 @@ try{var t=new URLSearchParams(location.search).get('theme')||localStorage.getIte
         <label>RYUCORE URL<input name="url" maxlength="500" inputmode="url" required placeholder="http://192.168.1.10:8090"></label>
         <div class="g-chk"><label class="chk"><input type="checkbox" name="newtab"> OPEN IN A NEW TAB</label></div>
         <p class="g-note" id="ryuNote">The address of your RyuCore instance (default port 8090). Stored on the hub, so every device that opens HEARTH gets it.</p>
+        <p class="g-note">To let RyuCore's agents read the fleet (and follow the fleet theme), start RyuCore with <code id="ryuEnv">RYU_HEARTH_URL=…</code></p>
         <div class="row"><button class="tgl" type="button" data-x="unlink" hidden>UNLINK</button><span class="sp"></span>
           <button class="tgl" type="button" data-x="no">CANCEL</button><button class="tgl on" type="submit">SAVE</button></div>
       </form>
@@ -252,10 +253,13 @@ try{var t=new URLSearchParams(location.search).get('theme')||localStorage.getIte
 </div>
 <div class="toasts" id="toasts" aria-live="polite"></div>
 
+<script src="look.js"></script>
 <script>
 'use strict';
+LOOK.sync().then(ch => { if (ch && !new URLSearchParams(location.search).get('theme')) LOOK.paint(LOOK.theme); });
 (() => {
   const $ = s => document.querySelector(s);
+  $('#ryuEnv').textContent = `RYU_HEARTH_URL=${location.origin}`;
   const slot = $('#ryuSlot'), gear = $('#ryuCfg'), dlg = $('#modal'), form = $('#ryuForm'), F = form.elements;
   const LS = 'hearth.ryucore';
   let cfg = {}, local = false; // local = hub has no store, config lives in this browser only

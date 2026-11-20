@@ -1015,3 +1015,18 @@ body.maint .maint-banner { display: block; }
   .a-journal li { grid-template-columns: auto minmax(0, 1fr) 24px; } .a-journal .chip { display: none; }
   .a-row { flex-wrap: wrap; } .a-age { order: 3; width: 100%; padding-left: 20px; }
 }
+
+/* RyuCore hand-off 竜: ask about a log event or a report */
+.log li { grid-template-columns: 62px 62px minmax(0, 1fr) auto; }
+.log .ask { display: none; align-self: center; padding: 0 6px; font: 700 11px/1.5 var(--f-jp); color: var(--a2);
+  background: transparent; border: 1px solid rgba(var(--a2-rgb), .45); cursor: pointer; opacity: .55; }
+body.has-ryu .log .ask { display: inline-block; }
+.log li:hover .ask, .log .ask:focus-visible { opacity: 1; }
+.log .ask:hover { background: rgba(var(--a2-rgb), .16); box-shadow: 0 0 10px rgba(var(--a2-rgb), .35); }
+.rep-tabs { display: flex; flex-wrap: wrap; align-items: center; }
+.rep-tabs .ask-btn { margin-left: auto; padding: 5px 12px; font: 700 11px/1.4 var(--f-disp); letter-spacing: .14em; color: var(--a2);
+  background: rgba(var(--a2-rgb), .08); border: 1px solid rgba(var(--a2-rgb), .5); cursor: pointer; }
+.rep-tabs .ask-btn em { font: 700 10px var(--f-jp); font-style: normal; color: var(--dim); margin-left: 4px; letter-spacing: 0; }
+.rep-tabs .ask-btn:hover { background: rgba(var(--a2-rgb), .18); box-shadow: 0 0 12px rgba(var(--a2-rgb), .35); }
+.a-m .a-ask { display: none; color: var(--a2); border-color: rgba(var(--a2-rgb), .5); }
+body.has-ryu .a-m .a-ask { display: inline-block; }

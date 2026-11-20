@@ -1,9 +1,11 @@
 # HEARTH hub — the dashboard. Run this on ONE machine.
-#   docker compose up -d --build        → http://<this-host>:8088
+#   docker compose pull && docker compose up -d   → http://<this-host>:8088   (published image)
+#   docker compose up -d --build                  → build from this checkout instead
+# Updates afterwards: ARSENAL → UPDATE HEARTH (or `docker compose pull && docker compose up -d`).
 services:
   hearth:
     build: .
-    image: hearth:latest
+    image: "${HEARTH_IMAGE:-ghcr.io/n3tv01d-jp/hearth:latest}"
     container_name: hearth
     restart: unless-stopped
 
@@ -23,6 +25,7 @@ services:
       HEARTH_NOTIFY: "${HEARTH_NOTIFY:-}"            # push alerts: ntfy / Gotify / Discord / Slack / webhook URLs
       HEARTH_CHECKS: "${HEARTH_CHECKS:-}"            # beacons, e.g. router=192.168.1.1, nas-web=http://192.168.1.5
       HEARTH_ALLOW_CONTROL: "${HEARTH_ALLOW_CONTROL:-0}"  # 1 = container control in HEARTH, updates / prune / stacks in ARSENAL
+      HEARTH_SELF_UPDATE: "${HEARTH_SELF_UPDATE:-1}"      # 1 = ARSENAL can update HEARTH itself from the published image
       # GATE 転送門 (service portal)
       HEARTH_GATE_LINKS: "${HEARTH_GATE_LINKS:-}"    # extra bookmarks: Router=http://192.168.1.1, ISP=https://…
       HEARTH_GATE_HOSTS: "${HEARTH_GATE_HOSTS:-}"    # host names for links: nas=nas.lan, pi=pi.lan

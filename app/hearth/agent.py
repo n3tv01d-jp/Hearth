@@ -34,7 +34,7 @@ def hub_url() -> str:
 
 
 async def handle_cmd(ws, m: dict) -> None:
-    """Run a container action the hub forwarded. control.run refuses unless HEARTH_ALLOW_CONTROL=1 here."""
+    """Run an action the hub forwarded. control.run checks HEARTH_ALLOW_CONTROL / HEARTH_SELF_UPDATE here."""
     try:
         arg = m.get("arg")
         res = await asyncio.to_thread(control.run, str(m.get("action")), str(m.get("cid")), int(m.get("lines") or 200),

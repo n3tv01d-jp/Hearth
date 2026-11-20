@@ -25,7 +25,12 @@ from .checks import Beacons
 from .collect import ALLOW_CONTROL, EVENTS, HISTORY, INTERVAL, NODE_ID, Collector, node_id
 from .control import ControlError
 from .gate import Gate, GateError
+from .mcp import MCP
+from .mcp import MODE as MCP_MODE
+from .mcp import authorized as mcp_authorized
 from .notify import Notifier
+from .pack import Pack
+from .pack import default_path as pack_path
 from .store import RANGES, Store
 
 log = logging.getLogger("hearth")
@@ -37,6 +42,7 @@ LOST_AFTER = float(os.getenv("HEARTH_LOST_AFTER", "15"))
 DISK_SAMPLE_EVERY = 600
 SLOW_EVERY = 600  # container usage flush + uptime records
 METRICS = os.getenv("HEARTH_METRICS", "1").strip().lower() not in ("0", "false", "no", "off")
+THEME_KEY = "look:theme"
 STATIC = Path(__file__).resolve().parent.parent / "static"
 # Agents are LAN-only: RFC1918, loopback, link-local and IPv6 ULA. Override with HEARTH_AGENT_CIDRS.
 LAN_CIDRS = ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8", "169.254.0.0/16",
@@ -196,6 +202,18 @@ class Hub:
         EVENTS.listeners.append(lambda e: self.ev_counts.update([(e["lvl"], e["src"])]))
         self.beacons = Beacons(on_result=self._beacon_result)
         self.gate = Gate(self)
+        self.pack = Pack(pack_path(DB_PATH))
+        self.theme_id = "hearth"
+        if self.store:
+            try:
+                t = json.loads(self.store.kv_get(THEME_KEY).get(THEME_KEY) or "{}").get("id")
+                if self.pack.get(t or ""):
+                    self.theme_id = t
+            except (ValueError, AttributeError):
+                pass
+        self._rev: tuple | None = None
+        self._pack_at = 0.0
+        self.mcp = MCP(self)
         self.started = time.time()
         self.test_at = 0.0
         self._pruned = 0.0
@@ -213,7 +231,59 @@ class Hub:
     def features(self) -> dict:
         return {"version": __version__, "hub": self.local.id, "control": ALLOW_CONTROL, "metrics": METRICS,
                 "store": self.store is not None, "retention": RETENTION_DAYS, "notify": self.notifier.status(),
-                "beacons": len(self.beacons.items), "started": int(self.started * 1000)}
+                "beacons": len(self.beacons.items), "started": int(self.started * 1000), "mcp": MCP_MODE}
+
+    # ── shared look (palettes + KAGARI pack) ──
+    def theme_ref(self) -> dict:
+        """{id, rev}: cheap enough to send every tick; rev changes when the theme or the pack does."""
+        key = (self.theme_id, self.pack.mtime)
+        if not self._rev or self._rev[0] != key:
+            self._rev = (key, self.pack.rev(self.theme_id))
+        return {"id": self.theme_id, "rev": self._rev[1]}
+
+    def theme_full(self) -> dict:
+        self.pack.maybe_reload()
+        if not self.pack.get(self.theme_id):
+            self.theme_id = "hearth"
+        return {**self.theme_ref(), "theme": self.theme_id, "palettes": self.pack.palettes, "kagari": self.pack.kagari}
+
+    def set_theme(self, pid: str) -> dict:
+        self.pack.maybe_reload()
+        if not self.pack.get(pid):
+            raise KeyError(pid)
+        self.theme_id = pid
+        if self.store:
+            self.store.kv_put(THEME_KEY, dumps({"id": pid, "t": int(time.time())}))
+        return self.theme_ref()
+
+    def status(self) -> dict:
+        """Compact fleet state for remote clients (KuroDeck, neosh): one small request per poll."""
+        since = (time.time() - 3600) * 1000
+        evs = [e for e in EVENTS.recent(200) if e["t"] >= since and (e["lvl"] in ("warn", "crit") or e.get("rec"))]
+        return {"t": int(time.time() * 1000), "hub": self.local.id, "version": __version__, "fleet": self.fleet(),
+                "events": evs[-30:], "maint": self.ops.active(), "theme": self.theme_ref()}
+
+    def arsenal_view(self) -> dict:
+        nodes = []
+        for n in sorted(self.nodes.values(), key=lambda n: (not n.local, n.id)):
+            s = n.latest or {}
+            dk = s.get("docker") or {}
+            stacks: dict[str, dict] = {}
+            for c in dk.get("containers") or []:
+                if c.get("project"):
+                    st = stacks.setdefault(c["project"], {"name": c["project"], "running": 0, "total": 0, "bad": 0, "self": False})
+                    st["total"] += 1
+                    st["running"] += c.get("state") == "running"
+                    st["bad"] += c.get("health") == "unhealthy" or c.get("state") in ("restarting", "dead")
+                    st["self"] |= bool(c.get("self"))
+            host = s.get("host") or {}
+            nodes.append({"id": n.id, "name": host.get("name", n.id), "local": n.local, "online": n.online,
+                          "os": host.get("os"), "kernel": host.get("kernel"), "uptime": host.get("uptime"),
+                          "arch": host.get("arch"), "docker": dk.get("online"), "control": bool(dk.get("control")),
+                          "arsenal": s.get("arsenal"), "stacks": sorted(stacks.values(), key=lambda x: x["name"])})
+        notes = self.store.notes(None, 0, None, 100) if self.store else []
+        return {"nodes": nodes, "maint": self.ops.active(), "heartbeats": self.ops.heartbeats(), "journal": notes,
+                "hub_control": ALLOW_CONTROL, "store": self.store is not None, "t": int(time.time() * 1000)}
 
     def _persist_event(self, e: dict) -> None:
         if self.store:
@@ -306,7 +376,11 @@ class Hub:
                 snap = await asyncio.to_thread(self.collector.collect)
                 await self.ingest(self.local, snap)
                 self._check_lost()
-                m = {"type": "fleet", "nodes": self.fleet(), "events": EVENTS.recent(60), "maint": self.ops.active()}
+                if t0 - self._pack_at > 30:
+                    self._pack_at = t0
+                    await asyncio.to_thread(self.pack.maybe_reload)
+                m = {"type": "fleet", "nodes": self.fleet(), "events": EVENTS.recent(60), "maint": self.ops.active(),
+                     "theme": self.theme_ref()}
                 if self.beacons.items:
                     m["beacons"] = self.beacons.snapshot()
                 msg = dumps(m)
@@ -324,7 +398,8 @@ class Hub:
         await ws.send_text(dumps({"type": "hello", "node": nid, "history": node.history(), "data": data,
                                   "fleet": self.fleet(), "events": EVENTS.recent(80),
                                   "store": self.store is not None, "features": self.features(),
-                                  "beacons": self.beacons.snapshot(), "maint": self.ops.active()}))
+                                  "beacons": self.beacons.snapshot(), "maint": self.ops.active(),
+                                  "theme": self.theme_ref()}))
 
     # ── container control ──
     async def command(self, nid: str, action: str, cid: str, lines: int = 200, arg: str | None = None) -> dict:
@@ -582,26 +657,7 @@ async def api_ryucore_save(request: Request):
 # ── ARSENAL 工廠 ──
 @app.get("/api/arsenal")
 async def api_arsenal():
-    nodes = []
-    for n in sorted(hub.nodes.values(), key=lambda n: (not n.local, n.id)):
-        s = n.latest or {}
-        dk = s.get("docker") or {}
-        stacks: dict[str, dict] = {}
-        for c in dk.get("containers") or []:
-            if c.get("project"):
-                st = stacks.setdefault(c["project"], {"name": c["project"], "running": 0, "total": 0, "bad": 0, "self": False})
-                st["total"] += 1
-                st["running"] += c.get("state") == "running"
-                st["bad"] += c.get("health") == "unhealthy" or c.get("state") in ("restarting", "dead")
-                st["self"] |= bool(c.get("self"))
-        host = s.get("host") or {}
-        nodes.append({"id": n.id, "name": host.get("name", n.id), "local": n.local, "online": n.online,
-                      "os": host.get("os"), "kernel": host.get("kernel"), "uptime": host.get("uptime"),
-                      "arch": host.get("arch"), "docker": dk.get("online"), "control": bool(dk.get("control")),
-                      "arsenal": s.get("arsenal"), "stacks": sorted(stacks.values(), key=lambda x: x["name"])})
-    notes = await asyncio.to_thread(hub.store.notes, None, 0, None, 100) if hub.store else []
-    return {"nodes": nodes, "maint": hub.ops.active(), "heartbeats": hub.ops.heartbeats(), "journal": notes,
-            "hub_control": ALLOW_CONTROL, "store": hub.store is not None, "t": int(time.time() * 1000)}
+    return await asyncio.to_thread(hub.arsenal_view)
 
 
 @app.post("/api/arsenal/action")
@@ -610,9 +666,10 @@ async def api_arsenal_action(request: Request):
     nid, action = str(body.get("node") or ""), str(body.get("action") or "")
     cid, arg = str(body.get("id") or ""), body.get("arg")
     arg = str(arg)[:200] if arg is not None else None
-    if action not in ("check", "update", "prune", "stack"):
-        raise HTTPException(400, "action must be check, update, prune or stack")
-    if action != "check" and not ALLOW_CONTROL:
+    if action not in ("check", "update", "prune", "stack", "selfupdate"):
+        raise HTTPException(400, "action must be check, update, prune, stack or selfupdate")
+    # selfupdate is allowed by each machine's own HEARTH_SELF_UPDATE, not by the hub's control switch
+    if action not in ("check", "selfupdate") and not ALLOW_CONTROL:
         raise HTTPException(403, "control is disabled on the hub (set HEARTH_ALLOW_CONTROL=1)")
     if action == "prune" and arg not in PRUNES:
         raise HTTPException(400, f"arg must be one of {', '.join(PRUNES)}")
@@ -622,7 +679,8 @@ async def api_arsenal_action(request: Request):
         raise HTTPException(404, f"unknown node {nid!r}")
     who = request.client.host if request.client else "?"
     if action != "check":
-        what = {"update": f"update {cid}", "prune": f"prune {arg}", "stack": f"stack {arg}"}[action]
+        what = {"update": f"update {cid}", "prune": f"prune {arg}", "stack": f"stack {arg}",
+                "selfupdate": "HEARTH self-update"}[action]
         EVENTS.add("info", "arsenal", f"⚙ {what} requested from {who}", node=nid)
     try:
         return await hub.command(nid, action, cid, 0, arg)
@@ -697,6 +755,65 @@ async def api_ping(name: str, request: Request, result: str = "ok", msg: str | N
         return hub.ops.ping(node_id(name), result == "ok", msg)
     except LookupError:
         raise HTTPException(404, f"unknown heartbeat {name!r} (add it to HEARTH_HEARTBEATS)") from None
+
+
+# ── shared look 配色 ──
+@app.get("/api/theme")
+async def api_theme(fmt: str = Query("json")):
+    full = await asyncio.to_thread(hub.theme_full)
+    if fmt == "text":
+        return PlainTextResponse(hub.pack.text(full["theme"]), media_type="text/plain; charset=utf-8")
+    return full
+
+
+@app.post("/api/theme")
+async def api_theme_set(request: Request):
+    body = await _body(request)
+    pid = str(body.get("theme") or "")[:32]
+    try:
+        ref = await asyncio.to_thread(hub.set_theme, pid)
+    except KeyError:
+        raise HTTPException(404, f"unknown theme {pid!r}") from None
+    who = request.client.host if request.client else "?"
+    log.info("theme: %s switched the fleet to %s", who, pid)
+    return ref
+
+
+@app.get("/api/status")
+async def api_status():
+    return hub.status()
+
+
+# ── MCP 接続: HEARTH as a Model Context Protocol server ──
+@app.post("/mcp")
+async def mcp_post(request: Request):
+    if MCP_MODE == "off":
+        raise HTTPException(404, "MCP is disabled on this hub (HEARTH_MCP=off)")
+    if not mcp_authorized(request.headers.get("authorization")):
+        return JSONResponse({"error": "unauthorized"}, status_code=401, headers={"WWW-Authenticate": "Bearer"})
+    # JSON only: a cross-site form or text/plain post can't reach the tools
+    if "application/json" not in (request.headers.get("content-type") or ""):
+        raise HTTPException(415, "Content-Type must be application/json")
+    try:
+        msg = await request.json()
+    except ValueError:
+        return JSONResponse({"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "parse error"}}, 400)
+    if isinstance(msg, list):
+        out = [r for r in [await hub.mcp.handle(m) for m in msg[:20]] if r is not None]
+        return JSONResponse(out) if out else Response(status_code=202)
+    res = await hub.mcp.handle(msg)
+    if res is None:
+        return Response(status_code=202)
+    headers = {}
+    if isinstance(msg, dict) and msg.get("method") == "initialize":
+        headers["Mcp-Session-Id"] = secrets.token_hex(16)
+    return JSONResponse(res, headers=headers)
+
+
+@app.api_route("/mcp", methods=["GET", "DELETE"])
+async def mcp_other():
+    # stateless server: no server-initiated stream, nothing to tear down
+    return Response(status_code=405, headers={"Allow": "POST"})
 
 
 @app.get("/api/snapshot")

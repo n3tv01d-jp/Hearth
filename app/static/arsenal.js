@@ -23,6 +23,9 @@ const PRUNE = [['images', 'Dangling images', 'untagged layers left behind by upd
   ['build', 'Build cache', 'cached layers from docker build']];
 const nodeById = id => A.d?.nodes.find(n => n.id === id);
 const can = n => !!(A.d?.hub_control && n?.control && n.online);
+/* HEARTH's own container: updated through the self-update helper, allowed per machine by HEARTH_SELF_UPDATE */
+const canSelf = n => !!(n?.online && n.arsenal?.self_update);
+const SELF_OK = ['update', 'pulled', 'local'];
 
 async function poll() {
   try {
@@ -119,11 +122,18 @@ function renderUpdates() {
       const st = el.querySelector('.a-state'); setText(st, label); st.title = u.error || '';
       setText(el.querySelector('.a-when'), u.checked ? sinceMs(u.checked) + ' ago' : '');
       const b = el.querySelector('button'), n = nodeById(u.node), busy = A.pending.has(`${u.node}|update|${u.id}`) || jobRunning(u.node, 'update', u.name);
+      if (u.self) {
+        b.hidden = !SELF_OK.includes(u.state);
+        b.disabled = busy || !canSelf(n);
+        setText(b, busy ? 'UPDATING…' : '⬆ UPDATE HEARTH');
+        b.title = !n?.online ? 'Machine offline' : !canSelf(n) ? 'Self-update is off on this machine (HEARTH_SELF_UPDATE=1)'
+          : `Pull ${u.image} and restart HEARTH on it (running ${n.arsenal?.version || '?'})`;
+        return;
+      }
       b.hidden = !(u.state === 'update' || u.state === 'pulled');
-      b.disabled = busy || !can(n) || u.self;
+      b.disabled = busy || !can(n);
       setText(b, busy ? 'UPDATING…' : '⬆ UPDATE');
-      b.title = u.self ? 'HEARTH updates itself with git pull && docker compose up -d --build'
-        : !can(n) ? (n?.online ? 'Control is off on this machine (HEARTH_ALLOW_CONTROL=1)' : 'Machine offline') : `Pull ${u.image} and recreate ${u.name}`;
+      b.title = !can(n) ? (n?.online ? 'Control is off on this machine (HEARTH_ALLOW_CONTROL=1)' : 'Machine offline') : `Pull ${u.image} and recreate ${u.name}`;
     });
   const empty = $('#updEmpty');
   empty.hidden = list.length > 0;
@@ -149,7 +159,7 @@ function renderMachines() {
   const nodes = A.d.nodes;
   setText($('#machMeta'), `${nodes.length} machine${nodes.length === 1 ? '' : 's'}`);
   keyed($('#machines'), nodes, n => n.id,
-    () => html(`<div class="a-m"><header><i class="a-dot"></i><b></b><span class="a-os"></span><button class="tgl sm" type="button" data-act="check">⟳ CHECK</button></header>
+    () => html(`<div class="a-m"><header><i class="a-dot"></i><b></b><span class="a-os"></span><button class="tgl sm a-ask" type="button" data-act="ask" title="Ask RyuCore to review this machine">竜 ASK</button><button class="tgl sm" type="button" data-act="check">⟳ CHECK</button></header>
       <div class="a-host"></div><div class="a-df"></div>
       <div class="a-prune"><button class="tgl sm" type="button" data-act="prune">🧹 CLEAN UP…</button></div>
       <ol class="a-jobs"></ol></div>`),
@@ -157,7 +167,7 @@ function renderMachines() {
       const a = n.arsenal || {}, h = a.host || {}, df = a.df;
       el.className = `a-m ${n.online ? '' : 'off'}`;
       setText(el.querySelector('header b'), n.name);
-      setText(el.querySelector('.a-os'), [n.os, n.uptime != null ? `up ${fmt.dur(n.uptime)}` : null].filter(Boolean).join(' · '));
+      setText(el.querySelector('.a-os'), [n.os, n.uptime != null ? `up ${fmt.dur(n.uptime)}` : null, n.arsenal?.version ? `HEARTH ${n.arsenal.version}` : null].filter(Boolean).join(' · '));
       const hostBits = [];
       if (!n.online) hostBits.push('<span class="tag crit">OFFLINE</span> showing the last report');
       else if (!n.arsenal) hostBits.push('<span class="tag dim">NO DATA</span> this agent runs an older HEARTH: rebuild it to see maintenance info');
@@ -296,6 +306,13 @@ $('#updList').addEventListener('click', e => {
   const b = e.target.closest('[data-act=update]'); if (!b) return;
   const [node, id] = b.closest('.a-tr').dataset.key.split('/');
   const u = allUpdates().find(x => x.node === node && x.id === id); if (!u) return;
+  if (u.self) {
+    const ver = nodeById(node)?.arsenal?.version;
+    confirmBox(`UPDATE HEARTH // ${u.nodeName}`, `Pull <code>${esc(u.image)}</code> and restart HEARTH${ver ? ` (now ${esc(ver)})` : ''} on ${esc(u.nodeName)}?<br><br>A small helper container swaps HEARTH for a copy on the new image with the same settings and waits until it's healthy. If it doesn't come up, the old version is put back. ${nodeById(node)?.local ? 'This page loses its link for a minute and reconnects by itself.' : `${esc(u.nodeName)} drops off the fleet for a minute.`}`, 'UPDATE HEARTH', async () => {
+      const r = await act(node, 'selfupdate'); if (r) toast(`HEARTH on ${u.nodeName} is updating itself… the result shows up in the event log`);
+    }, false);
+    return;
+  }
   confirmBox(`UPDATE // ${u.name}`, `Pull <code>${esc(u.image)}</code> and recreate <b>${esc(u.name)}</b> on ${esc(u.nodeName)}?<br><br>It restarts with exactly the same settings (env, volumes, ports, networks). If anything fails, the old container is put back.`, 'UPDATE', async () => {
     const r = await act(node, 'update', { id }); if (r) toast(`Updating ${u.name}… this can take a minute`);
   }, false);
@@ -318,10 +335,32 @@ $('#checkAll').addEventListener('click', async () => {
   await Promise.all(nodes.map(n => act(n.id, 'check')));
   toast(`Checking ${nodes.length} machine${nodes.length === 1 ? '' : 's'} against their registries…`);
 });
+/* RyuCore hand-off 竜: a maintenance review of one machine */
+LOOK.ryucore().then(u => document.body.classList.toggle('has-ryu', !!u));
+async function askNode(n) {
+  const a = n.arsenal || {}, h = a.host || {};
+  const ups = (a.updates || []).filter(u => u.state === 'update' || u.state === 'pulled').map(u => u.name);
+  const bad = (n.stacks || []).filter(s => s.bad || s.running < s.total).map(s => `${s.name} (${s.running}/${s.total} running${s.bad ? `, ${s.bad} unhealthy` : ''})`);
+  const old = (a.backups || []).filter(b => b.lvl !== 'ok').map(b => `${b.name}: ${b.lvl === 'crit' ? 'missing or very late' : 'late'}${b.detail ? ` (${b.detail})` : ''}`);
+  const facts = [
+    `OS ${n.os || '?'}, kernel ${n.kernel || '?'}, up ${n.uptime != null ? fmt.dur(n.uptime) : '?'}`,
+    h.reboot ? `reboot required (${h.reason || 'no reason given'})` : 'no reboot needed',
+    h.pending != null ? `${h.pending} package updates${h.security ? ` (${h.security} security)` : ''}` : null,
+    ups.length ? `image updates waiting: ${ups.join(', ')}` : 'no image updates waiting',
+    bad.length ? `stacks not fully up: ${bad.join('; ')}` : null,
+    old.length ? `backups needing attention: ${old.join('; ')}` : null,
+  ].filter(Boolean);
+  const ok = await LOOK.ask(`Please review the maintenance state of machine "${n.id}" in my HEARTH fleet.\n\n- ${facts.join('\n- ')}\n\n`
+    + 'Use the hearth tools (maintenance_overview, node_snapshot, events, journal) to check the details and recent changes. '
+    + 'Then give me a prioritised to-do list: what to do now, what can wait, and what is risky (e.g. an image update that may need a migration). '
+    + 'Don\'t run any action without asking me first.');
+  if (!ok) toast('Link RyuCore first: start page → RYUCORE card', 'warn');
+}
 $('#machines').addEventListener('click', e => {
   const b = e.target.closest('[data-act]'); if (!b) return;
   const n = nodeById(b.closest('.a-m').dataset.key); if (!n) return;
   if (b.dataset.act === 'check') { act(n.id, 'check').then(r => r && toast(`Checking ${n.name}…`)); return; }
+  if (b.dataset.act === 'ask') { askNode(n); return; }
   const df = n.arsenal?.df;
   const size = { images: df?.images.dangling_size, 'images-all': df?.images.unused_size, containers: df?.containers.stopped_size, build: df?.build.reclaim };
   const body = html(`<div class="a-prunes">${PRUNE.map(([k, l, d]) => `<button type="button" data-p="${k}"><b>${l}</b><span>${fmt.bytes(size[k] || 0)}</span><small>${d}</small></button>`).join('')}
