@@ -1,22 +1,95 @@
 # Python
 __pycache__/
 *.py[cod]
+*$py.class
 *.egg-info/
+*.egg
+build/
+dist/
+.eggs/
+pip-wheel-metadata/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.pytype/
+.pyre/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
 
 # Virtual environments
 .venv/
 venv/
 env/
+ENV/
+.python-version
 
-# Local config / secrets
+# Runtime data (local SQLite archive, WAL files, backups)
+data/
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+*.sqlite
+*.sqlite3
+*.bak
+*.backup
+*.dump
+
+# Local config overrides
+docker-compose.override.yml
+compose.override.yml
+*.local.yml
+*.local.yaml
+.claude/settings.local.json
+
+# Secrets: env files, keys, tokens, credentials
 .env
 .env.*
 !.env.example
-docker-compose.override.yml
-compose.override.yml
+*.env
+!*.env.example
+.envrc
+secrets/
+.secrets/
+secret*.json
+secrets.y*ml
+credentials*
+*credentials*.json
+*.token
+token*.json
+*.tokens
+.netrc
+.npmrc
+.pypirc
+.htpasswd
+*.pem
+*.key
+*.crt
+*.cer
+*.csr
+*.der
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.gpg
+*.asc
+*.age
+id_rsa*
+id_dsa*
+id_ecdsa*
+id_ed25519*
+*.ppk
+.ssh/
+service-account*.json
+*-sa.json
+.docker/config.json
+kubeconfig*
+*.kubeconfig
 
 # Editors / IDEs
 .vscode/
@@ -24,12 +97,19 @@ compose.override.yml
 *.swp
 *.swo
 *~
+*.sublime-workspace
+.project
+.settings/
 
 # OS clutter
 .DS_Store
 Thumbs.db
+desktop.ini
+._*
 
 # Logs / scratch
 *.log
 *.pid
-
+*.tmp
+tmp/
+.cache/
